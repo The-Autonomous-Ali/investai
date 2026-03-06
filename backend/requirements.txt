@@ -1,0 +1,46 @@
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# Database
+sqlalchemy==2.0.25
+alembic==1.13.1
+asyncpg==0.29.0
+psycopg2-binary==2.9.9
+
+# Redis
+redis==5.0.1
+
+# Neo4j
+neo4j==5.16.0
+
+# AI
+anthropic==0.39.0
+langchain-core==0.2.38
+langgraph==0.1.19
+langchain==0.2.16
+langchain-anthropic==0.1.23
+
+# Scraping
+playwright==1.41.1
+feedparser==6.0.11
+httpx==0.26.0
+beautifulsoup4==4.12.3
+lxml==5.1.0
+
+# Auth
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.6
+
+# Scheduling
+apscheduler==3.10.4
+celery==5.3.6
+
+# Utils
+python-dotenv==1.0.1
+structlog==24.1.0
+tenacity==8.2.3
+pandas==2.2.0
+numpy==1.26.3
