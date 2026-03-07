@@ -1,8 +1,9 @@
 import Head from 'next/head'
 import { signIn, getSession } from 'next-auth/react'
+import { useRouter } from 'next/router'
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { TrendingUp, Linkedin, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { TrendingUp, Linkedin, AlertCircle, CheckCircle2, Zap } from 'lucide-react'
 
 export async function getServerSideProps(ctx) {
   const session = await getSession(ctx)
@@ -11,20 +12,35 @@ export async function getServerSideProps(ctx) {
 }
 
 export default function SignIn() {
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading]   = useState(false)
+  const [demoLoading, setDemoLoading] = useState(false)
+  const router = useRouter()
 
   const handleGoogleSignIn = async () => {
     setLoading(true)
     await signIn('google', { callbackUrl: '/onboarding' })
   }
 
+  const handleDemoSignIn = async () => {
+    setDemoLoading(true)
+    // Store demo flag in sessionStorage so dashboard knows
+    sessionStorage.setItem('demo_mode', 'true')
+    sessionStorage.setItem('demo_user', JSON.stringify({
+      name: 'Demo User',
+      email: 'demo@investai.in',
+      plan: 'pro',
+    }))
+    router.push('/dashboard')
+  }
+
   return (
     <>
       <Head>
-        <title>Sign In — InvestAI</title>
+        <title>Sign In – InvestAI</title>
       </Head>
       <div className="min-h-screen bg-surface flex">
-        {/* Left: Branding */}
+
+        {/* ── Left: Branding ─────────────────────────────────────────── */}
         <div className="hidden lg:flex flex-1 flex-col justify-between p-12 bg-surface-2 border-r border-white/5 relative overflow-hidden">
           <div className="absolute inset-0 bg-gradient-to-br from-gold/5 to-transparent pointer-events-none" />
           <div className="flex items-center gap-2 relative z-10">
@@ -57,7 +73,7 @@ export default function SignIn() {
           </p>
         </div>
 
-        {/* Right: Sign in form */}
+        {/* ── Right: Sign in form ─────────────────────────────────────── */}
         <div className="flex-1 flex flex-col items-center justify-center p-8">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -69,7 +85,30 @@ export default function SignIn() {
               <p className="text-ink">Sign in to your investment intelligence dashboard</p>
             </div>
 
-            {/* Google Sign In */}
+            {/* ── Demo Button (top, prominent) ── */}
+            <button
+              onClick={handleDemoSignIn}
+              disabled={demoLoading}
+              className="w-full flex items-center justify-center gap-3 py-4 rounded-xl border-2 border-gold/40 bg-gold/10 text-gold font-semibold font-display hover:bg-gold/20 hover:border-gold/60 transition-all disabled:opacity-50 mb-3 group"
+            >
+              <Zap size={18} className="fill-gold group-hover:scale-110 transition-transform" />
+              {demoLoading ? 'Loading Dashboard...' : 'Continue as Demo (No Login)'}
+            </button>
+            <p className="text-center text-xs text-ink mb-6">
+              ⚡ Instantly explore with mock data — no Google account needed
+            </p>
+
+            {/* ── Divider ── */}
+            <div className="relative mb-6">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-white/10" />
+              </div>
+              <div className="relative flex justify-center text-xs text-ink bg-surface px-3">
+                OR SIGN IN WITH GOOGLE
+              </div>
+            </div>
+
+            {/* ── Google Sign In ── */}
             <button
               onClick={handleGoogleSignIn}
               disabled={loading}
@@ -84,16 +123,7 @@ export default function SignIn() {
               {loading ? 'Signing in...' : 'Continue with Google'}
             </button>
 
-            <div className="relative mb-6">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-white/10" />
-              </div>
-              <div className="relative flex justify-center text-xs text-ink bg-surface px-3">
-                THEN OPTIONALLY
-              </div>
-            </div>
-
-            {/* LinkedIn nudge card */}
+            {/* ── LinkedIn nudge card ── */}
             <div className="card p-5 border-blue-500/20 bg-blue-500/5 mb-8">
               <div className="flex items-start gap-3">
                 <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0">
@@ -107,11 +137,11 @@ export default function SignIn() {
                     </span>
                   </div>
                   <p className="text-ink text-xs leading-relaxed mb-3">
-                    Most people don't have LinkedIn — that's fine. But if you do, it unlocks early signals from 
+                    Most people don't have LinkedIn — that's fine. But if you do, it unlocks early signals from
                     the RBI Governor, SEBI Chairman, and top fund managers — <em>before</em> it hits the news.
                   </p>
                   <p className="text-ink text-xs">
-                    3 days before the Feb 2024 rate hold, our system caught the Governor's post about 
+                    3 days before the Feb 2024 rate hold, our system caught the Governor's post about
                     "managing expectations." LinkedIn users got an early alert.
                   </p>
                 </div>
@@ -125,12 +155,13 @@ export default function SignIn() {
             <div className="flex items-start gap-2 text-xs text-ink">
               <AlertCircle size={14} className="flex-shrink-0 mt-0.5 text-ink" />
               <p>
-                By signing in you agree to our Terms of Service. InvestAI provides educational 
+                By signing in you agree to our Terms of Service. InvestAI provides educational
                 information only and is not a SEBI-registered advisor.
               </p>
             </div>
           </motion.div>
         </div>
+
       </div>
     </>
   )
