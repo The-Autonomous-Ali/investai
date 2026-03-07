@@ -53,7 +53,7 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+      # - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U investai"]
       interval: 5s
@@ -80,6 +80,9 @@ services:
     environment:
       - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-investai123}
       - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_dbms_memory_heap_initial__size=128m
+      - NEO4J_dbms_memory_heap_max__size=256m
+      - NEO4J_dbms_memory_pagecache__size=64m
     volumes:
       - neo4j_data:/data
       - ./infra/neo4j:/var/lib/neo4j/import

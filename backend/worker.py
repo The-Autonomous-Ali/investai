@@ -21,7 +21,7 @@ async def scan_signals():
     try:
         from database.connection import AsyncSessionLocal
         from agents.signal_watcher import SignalWatcherAgent
-        import aioredis
+        import redis.asyncio as aioredis
         import os
 
         redis = aioredis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
