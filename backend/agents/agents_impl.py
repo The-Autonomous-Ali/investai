@@ -7,14 +7,14 @@ from datetime import datetime, timedelta
 
 client = AsyncAnthropic()
 
-PORTFOLIO_PROMPT = """You are a portfolio construction specialist for Indian retail investors.
+PORTFOLIO_PROMPT = """You are a portfolio construction specialist for {country} retail investors.
 
 BUILD A SPECIFIC ALLOCATION PLAN based on:
 
 RESEARCH ANALYSIS: {research}
 HISTORICAL PATTERNS: {patterns}
 USER PROFILE: {user_profile}
-INVESTMENT AMOUNT: ₹{amount}
+INVESTMENT AMOUNT: {amount} (in local currency)
 TIME HORIZON: {horizon}
 CRITIC FEEDBACK (if any): {critic_feedback}
 
@@ -24,24 +24,23 @@ Rules:
 - Respect user's avoid_sectors list
 - Match risk level to user's risk_tolerance
 - For moderate risk: max 60% equity
-- Always name specific instruments (ETFs/index funds preferred over direct stocks)
+- Always name specific instruments (ETFs/index funds available in {country} are preferred)
 - Include specific entry price ranges where possible
 
 Return ONLY valid JSON:
 {{
   "allocation": {{
-    "Nifty 50 Index Fund": {{"percentage": 25, "amount": 25000, "instrument_type": "mutual_fund", "reason": "core equity exposure"}},
-    "Gold ETF": {{"percentage": 20, "amount": 20000, "instrument_type": "etf", "reason": "inflation hedge"}},
-    "Liquid Fund": {{"percentage": 15, "amount": 15000, "instrument_type": "mutual_fund", "reason": "emergency buffer + waiting for better entry"}}
+    "Asset Name": {{"percentage": 25, "amount": 25000, "instrument_type": "etf/fund/stock", "reason": "why"}},
+    ...
   }},
   "sectors_to_buy": [{{"sector": "name", "reason": "why", "instruments": ["specific fund/stock"]}}],
   "sectors_to_avoid": [{{"sector": "name", "reason": "why", "risk": "specific risk"}}],
   "rebalancing_triggers": [
-    {{"condition": "Brent crude crosses $110", "action": "Reduce aviation to 0%, increase ONGC to 20%"}}
+    {{"condition": "Brent crude crosses $110", "action": "Reduce sensitive sectors, increase oil beneficiaries"}}
   ],
   "step_by_step_actions": [
-    "Step 1: Open Zerodha/Groww account if not already",
-    "Step 2: Invest ₹X in Y via SIP or lumpsum"
+    "Step 1: Open brokerage account in {country} if not already",
+    "Step 2: Invest X in Y"
   ],
   "narrative": "3-paragraph explanation for the user in simple language",
   "confidence_score": 0.0-1.0,
@@ -60,6 +59,7 @@ class PortfolioAgent:
         profile   = inputs.get("user_profile", {})
         amount    = inputs.get("amount", 100000)
         horizon   = inputs.get("horizon", "1 year")
+        country   = inputs.get("country", "India")
         feedback  = inputs.get("critic_feedback", "None")
 
         response = await client.messages.create(
@@ -71,6 +71,7 @@ class PortfolioAgent:
                 user_profile=json.dumps(profile, indent=2)[:500],
                 amount=f"{amount:,.0f}",
                 horizon=horizon,
+                country=country,
                 critic_feedback=feedback,
             )}]
         )
@@ -80,47 +81,42 @@ class PortfolioAgent:
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-TAX_PROMPT = """You are an India tax optimization specialist (CA-level knowledge).
+TAX_PROMPT = """You are a tax optimization specialist for {country}.
 
-Review this portfolio allocation and optimize for India tax efficiency.
+Review this portfolio allocation and optimize for {country} tax efficiency.
 
 ALLOCATION: {allocation}
 USER PROFILE: {profile}
 Tax bracket: {tax_bracket}%
-State: {state}
 
-Consider:
+If the country is India, consider:
 - STCG (15%) vs LTCG (10% above ₹1L) for equity
-- STCG (slab rate) vs LTCG (20% with indexation) for debt
 - Section 80C: ELSS funds (₹1.5L limit)
-- Section 80CCD(1B): NPS (additional ₹50K)
-- Section 80D: Health insurance (if applicable)
-- Sovereign Gold Bonds: tax-free on maturity (if held to maturity)
-- Tax-loss harvesting opportunities from existing portfolio
+- Sovereign Gold Bonds: tax-free on maturity
+...
+
+If the country is NOT India, provide best-effort general tax optimization advice based on common global standards (like capital gains holding periods, tax-advantaged accounts like 401k/IRA/ISA, etc.).
 
 Return ONLY valid JSON:
 {{
   "optimizations": [
     {{
-      "original": "Gold ETF ₹2L",
-      "suggestion": "Replace with Sovereign Gold Bond",
-      "tax_benefit": "Maturity redemption tax-free under Section 47",
+      "original": "Asset A",
+      "suggestion": "Suggestion B",
+      "tax_benefit": "Why it saves tax",
       "annual_saving_estimate": 3000
     }}
   ],
-  "elss_recommendation": {{"amount": 50000, "benefit": "Save ₹15000 in taxes via 80C"}},
-  "nps_recommendation": {{"amount": 50000, "benefit": "Save ₹15000 via 80CCD(1B)"}},
-  "holding_period_advice": "Hold equity >1 year to qualify for LTCG at 10% vs STCG at 15%",
-  "tax_loss_harvest": [],
-  "post_tax_return_estimate": "12.5% post-tax vs 14.2% pre-tax",
-  "estimated_annual_tax_saving": 28000,
-  "total_80c_utilization": "₹1.5L (fully utilized)"
+  "tax_advantaged_recommendation": {{"amount": 50000, "benefit": "Save X in taxes"}},
+  "holding_period_advice": "Advice on how long to hold assets",
+  "post_tax_return_estimate": "X% post-tax vs Y% pre-tax",
+  "estimated_annual_tax_saving": 28000
 }}
 """
 
 
 class TaxAgent:
-    async def optimize(self, portfolio: dict, profile: dict) -> dict:
+    async def optimize(self, portfolio: dict, profile: dict, country: str = "India") -> dict:
         response = await client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=1500,
@@ -130,7 +126,7 @@ class TaxAgent:
                     "risk_tolerance", "experience_level", "investment_horizon"
                 ]}, indent=2),
                 tax_bracket=profile.get("tax_bracket", 30),
-                state=profile.get("state", "General"),
+                country=country,
             )}]
         )
         text = response.content[0].text.strip().replace("```json","").replace("```","").strip()
@@ -384,9 +380,9 @@ class WatchdogAgent:
 class PatternMatcherAgent:
     """Finds historical analogues for current market conditions."""
 
-    PATTERN_PROMPT = """You are a market historian specializing in Indian markets.
+    PATTERN_PROMPT = """You are a market historian specializing in {country} and global markets.
 
-Find historical analogues for these current signals and what happened to Indian markets.
+Find historical analogues for these current signals and what happened to {country} markets.
 
 CURRENT SIGNALS: {signals}
 
@@ -395,18 +391,16 @@ Analyze and return ONLY valid JSON:
   "best_analogues": [
     {{
       "year": 2022,
-      "event": "Russia-Ukraine war + Oil spike",
+      "event": "War + Oil spike",
       "similarity_score": 84,
-      "similarity_reasons": ["Oil above $90", "INR weakness", "FII selling"],
+      "similarity_reasons": ["Oil above $90", "Local currency weakness"],
       "what_happened": {{
-        "Nifty_3m": "-5.8%",
+        "Market_3m": "-5.8%",
         "Aviation": "-22%",
-        "ONGC": "+34%",
-        "Gold": "+11%",
-        "IT": "+8%",
-        "FMCG": "-3%"
+        "Energy": "+34%",
+        "Gold": "+11%"
       }},
-      "key_lesson": "Oil beneficiaries outperformed strongly for first 2 months then reversed on ceasefire news"
+      "key_lesson": "description of historical lesson"
     }}
   ],
   "pattern_quality": "high|medium|low",
@@ -418,7 +412,7 @@ Analyze and return ONLY valid JSON:
     def __init__(self, db_session):
         self.db = db_session
 
-    async def find_patterns(self, signals: list) -> dict:
+    async def find_patterns(self, signals: list, country: str = "India") -> dict:
         if not signals:
             return {"best_analogues": [], "confidence_score": 0.3}
 
@@ -432,6 +426,7 @@ Analyze and return ONLY valid JSON:
                     ]}
                     for s in signals[:5]
                 ], indent=2),
+                country=country,
             )}]
         )
         text = response.content[0].text.strip().replace("```json","").replace("```","").strip()

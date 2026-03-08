@@ -16,6 +16,7 @@ class AdviceRequest(BaseModel):
     query:   str   = Field(..., max_length=500)
     amount:  float = Field(..., gt=0, le=100_000_000)
     horizon: str   = Field(default="1 year")
+    country: str   = Field(default="India")
 
 
 class AdviceResponse(BaseModel):
@@ -66,6 +67,7 @@ async def get_investment_advice(
             query=request.query,
             amount=request.amount,
             horizon=request.horizon,
+            country=request.country,
         )
         return AdviceResponse(**result)
     finally:

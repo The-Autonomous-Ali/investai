@@ -11,9 +11,9 @@ from neo4j import AsyncGraphDatabase
 logger = structlog.get_logger()
 client = AsyncAnthropic()
 
-RESEARCH_PROMPT = """You are an expert analyst specializing in how global and domestic events impact the Indian economy and stock markets.
+RESEARCH_PROMPT = """You are an expert analyst specializing in how global and domestic events impact the {country} economy and stock markets.
 
-Given these current market signals and their knowledge graph connections, produce a thorough impact analysis.
+Given these current market signals and their knowledge graph connections, produce a thorough impact analysis for {country}.
 
 SIGNALS:
 {signals}
@@ -21,7 +21,7 @@ SIGNALS:
 KNOWLEDGE GRAPH CONNECTIONS (what these signals connect to):
 {kg_connections}
 
-CURRENT INDIA MACRO STATE:
+CURRENT {country} MACRO STATE:
 {macro_state}
 
 AGENT ACCURACY NOTE: {accuracy_note}
@@ -38,15 +38,15 @@ Analyze and return ONLY valid JSON:
     }},
     ...
   ],
-  "india_specific_analysis": "detailed paragraph on India-specific impact",
+  "country_specific_analysis": "detailed paragraph on {country}-specific impact",
   "sectors_analysis": {{
-    "strong_buy": [{{"sector": "name", "reason": "why", "instruments": ["ONGC", "Oil India ETF"]}}],
+    "strong_buy": [{{"sector": "name", "reason": "why", "instruments": ["Asset A", "Asset B"]}}],
     "buy": [...],
     "neutral": [...],
     "avoid": [{{"sector": "name", "reason": "why", "risk_level": "high"}}],
     "strong_avoid": [...]
   }},
-  "currency_impact": "analysis of INR impact",
+  "currency_impact": "analysis of local currency impact",
   "inflation_impact": "analysis of inflation impact",
   "time_horizon": "short_term|medium_term|long_term",
   "key_assumptions": ["assumption 1", "assumption 2"],
@@ -60,7 +60,7 @@ KG_TRAVERSAL_QUERY = """
 MATCH (e:Event)-[:CAUSES*1..3]->(impact)
 WHERE e.name IN $entity_names OR e.type IN $signal_types
 WITH impact, e
-OPTIONAL MATCH (impact)-[:AFFECTS]->(sector:Sector {country: 'India'})
+OPTIONAL MATCH (impact)-[:AFFECTS]->(sector:Sector {{country: $country}})
 RETURN DISTINCT 
   e.name as trigger,
   impact.name as effect,
@@ -79,12 +79,12 @@ class ResearchAgent:
         self.db     = db_session
         self.neo4j  = neo4j_driver
 
-    async def analyze(self, signals: list) -> dict:
+    async def analyze(self, signals: list, country: str = "India") -> dict:
         """Full research analysis for a list of signals."""
         if not signals:
             return {"error": "no_signals", "sectors_analysis": {}}
 
-        log = logger.bind(signal_count=len(signals))
+        log = logger.bind(signal_count=len(signals), country=country)
         log.info("research_agent.start")
 
         # Extract entities and types from signals
@@ -96,23 +96,23 @@ class ResearchAgent:
                 signal_types.append(s["signal_type"])
 
         # Query knowledge graph for connections
-        kg_connections = await self._query_knowledge_graph(entities, signal_types)
+        kg_connections = await self._query_knowledge_graph(entities, signal_types, country)
 
         # Get current macro state
-        macro_state = await self._get_macro_state()
+        macro_state = await self._get_macro_state(country)
 
         # Get agent accuracy note for self-calibration
         accuracy_note = await self._get_accuracy_note(signal_types)
 
         # Run AI analysis
         result = await self._run_analysis(
-            signals, kg_connections, macro_state, accuracy_note
+            signals, kg_connections, macro_state, accuracy_note, country
         )
 
         log.info("research_agent.complete", confidence=result.get("confidence_score"))
         return result
 
-    async def _query_knowledge_graph(self, entities: list, signal_types: list) -> list:
+    async def _query_knowledge_graph(self, entities: list, signal_types: list, country: str) -> list:
         """Query Neo4j knowledge graph for impact chains."""
         if not self.neo4j:
             return self._get_fallback_kg_data(entities, signal_types)
@@ -123,6 +123,7 @@ class ResearchAgent:
                     KG_TRAVERSAL_QUERY,
                     entity_names=entities[:10],
                     signal_types=signal_types,
+                    country=country
                 )
                 records = await result.data()
                 return records
@@ -156,21 +157,26 @@ class ResearchAgent:
             connections.extend(base_connections.get(stype, []))
         return connections if connections else base_connections["monetary"]
 
-    async def _get_macro_state(self) -> dict:
-        """Get current India macro indicators."""
-        # In production: fetch from NSE/RBI APIs
-        return {
-            "repo_rate":           "6.50%",
-            "cpi_inflation":       "5.10%",
-            "gdp_growth":          "7.20%",
-            "current_account_deficit": "-1.8% of GDP",
-            "forex_reserves":      "$620B",
-            "fii_ytd_flows":       "-$2.1B",
-            "dii_ytd_flows":       "+$8.4B",
-            "rupee_ytd_change":    "-1.2%",
-            "nifty_pe":            "21.4x",
-            "india_vix":           "14.2 (low)",
-        }
+    async def _get_macro_state(self, country: str) -> dict:
+        """Get current country macro indicators."""
+        # In production: fetch from country-specific APIs
+        if country == "India":
+            return {
+                "repo_rate":           "6.50%",
+                "cpi_inflation":       "5.10%",
+                "gdp_growth":          "7.20%",
+                "current_account_deficit": "-1.8% of GDP",
+                "forex_reserves":      "$620B",
+                "fii_ytd_flows":       "-$2.1B",
+                "dii_ytd_flows":       "+$8.4B",
+                "rupee_ytd_change":    "-1.2%",
+                "nifty_pe":            "21.4x",
+                "india_vix":           "14.2 (low)",
+            }
+        else:
+            return {
+                "note": f"Real-time macro data for {country} is currently estimated by LLM.",
+            }
 
     async def _get_accuracy_note(self, signal_types: list) -> str:
         """Get self-calibration note based on past accuracy."""
@@ -192,7 +198,7 @@ class ResearchAgent:
 
         return " ".join(notes) if notes else "No calibration data available yet."
 
-    async def _run_analysis(self, signals, kg_connections, macro_state, accuracy_note) -> dict:
+    async def _run_analysis(self, signals, kg_connections, macro_state, accuracy_note, country: str) -> dict:
         """Run the main AI analysis."""
         signals_text = json.dumps([
             {k: v for k, v in s.items() if k in [
@@ -212,6 +218,7 @@ class ResearchAgent:
                     kg_connections=json.dumps(kg_connections[:15], indent=2),
                     macro_state=json.dumps(macro_state, indent=2),
                     accuracy_note=accuracy_note,
+                    country=country,
                 )
             }]
         )

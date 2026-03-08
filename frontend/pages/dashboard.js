@@ -1,8 +1,9 @@
 import Head from 'next/head'
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { TrendingUp, Bell, Settings, LogOut, Activity, Brain, Shield, ChevronRight, RefreshCw } from 'lucide-react'
+import { TrendingUp, Bell, Settings, LogOut, Activity, Brain, Shield, ChevronRight, RefreshCw, Zap } from 'lucide-react'
 import Link from 'next/link'
+import { useRouter } from 'next/router'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 
 // ── Mock Data ──────────────────────────────────────────────────────────────
@@ -49,13 +50,35 @@ const STAGE_COLORS = {
 
 // ── Components ──────────────────────────────────────────────────────────────
 
-function SideNav({ activeTab, setActiveTab }) {
+function DemoBanner({ onExit }) {
+  return (
+    <div className="bg-gold/10 border-b border-gold/20 px-8 py-2 flex items-center justify-between">
+      <div className="flex items-center gap-2 text-sm">
+        <Zap size={14} className="text-gold fill-gold" />
+        <span className="text-gold font-medium">Demo Mode</span>
+        <span className="text-ink">— You're viewing InvestAI with mock data. Sign in to connect live agents.</span>
+      </div>
+      <div className="flex items-center gap-3">
+        <Link href="/auth/signin" className="text-xs btn-gold px-3 py-1 rounded-lg">
+          Sign In with Google
+        </Link>
+        <button onClick={onExit} className="text-xs text-ink hover:text-white transition-colors">
+          Exit Demo
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function SideNav({ activeTab, setActiveTab, userName }) {
   const items = [
     { id: 'dashboard',  label: 'Dashboard',       icon: Activity },
-    { id: 'signals',    label: 'Signal Tracker',  icon: Brain,   href: '/signals' },
+    { id: 'signals',    label: 'Signal Tracker',  icon: Brain,      href: '/signals' },
     { id: 'portfolio',  label: 'Portfolio',        icon: TrendingUp, href: '/portfolio' },
-    { id: 'settings',   label: 'Settings',         icon: Settings, href: '/settings' },
+    { id: 'settings',   label: 'Settings',         icon: Settings,   href: '/settings' },
   ]
+
+  const initials = userName ? userName.charAt(0).toUpperCase() : 'D'
 
   return (
     <div className="w-64 bg-surface-2 border-r border-white/5 flex flex-col h-screen fixed left-0 top-0">
@@ -88,9 +111,11 @@ function SideNav({ activeTab, setActiveTab }) {
 
       <div className="p-4 border-t border-white/5">
         <div className="flex items-center gap-3 px-4 py-3">
-          <div className="w-8 h-8 rounded-full bg-gold/20 flex items-center justify-center text-gold text-sm font-bold">S</div>
+          <div className="w-8 h-8 rounded-full bg-gold/20 flex items-center justify-center text-gold text-sm font-bold">
+            {initials}
+          </div>
           <div>
-            <div className="text-white text-sm font-medium">Sameer</div>
+            <div className="text-white text-sm font-medium">{userName || 'Demo User'}</div>
             <div className="text-ink text-xs">Pro Plan</div>
           </div>
         </div>
@@ -168,7 +193,6 @@ function AskAI() {
   const handleSubmit = async () => {
     if (!query || !amount) return
     setLoading(true)
-    // Simulate API call
     await new Promise(r => setTimeout(r, 3000))
     setResponse({
       narrative: `Based on current signals — particularly the Brent crude spike and RBI's cautious stance — here is your personalized plan for ₹${Number(amount).toLocaleString('en-IN')}.
@@ -286,15 +310,44 @@ For your 1-year horizon with moderate risk tolerance, the allocation balances oi
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('dashboard')
+  const [demoMode, setDemoMode]   = useState(false)
+  const [userName, setUserName]   = useState('Sameer')
+  const router = useRouter()
+
+  useEffect(() => {
+    const isDemo = sessionStorage.getItem('demo_mode')
+    if (isDemo === 'true') {
+      setDemoMode(true)
+      try {
+        const user = JSON.parse(sessionStorage.getItem('demo_user') || '{}')
+        if (user.name) setUserName(user.name)
+      } catch {}
+    }
+  }, [])
+
+  const handleExitDemo = () => {
+    sessionStorage.removeItem('demo_mode')
+    sessionStorage.removeItem('demo_user')
+    router.push('/')
+  }
+
+  const greeting = () => {
+    const h = new Date().getHours()
+    if (h < 12) return 'Good morning'
+    if (h < 17) return 'Good afternoon'
+    return 'Good evening'
+  }
 
   return (
     <>
       <Head><title>Dashboard — InvestAI</title></Head>
       <div className="flex min-h-screen bg-surface">
-        <SideNav activeTab={activeTab} setActiveTab={setActiveTab} />
+        <SideNav activeTab={activeTab} setActiveTab={setActiveTab} userName={demoMode ? 'Demo User' : userName} />
 
-        {/* Main content */}
         <div className="ml-64 flex-1 min-w-0">
+          {/* Demo banner */}
+          {demoMode && <DemoBanner onExit={handleExitDemo} />}
+
           {/* Top bar */}
           <div className="sticky top-0 z-40 bg-surface/90 backdrop-blur-md border-b border-white/5 px-8 py-3">
             <div className="flex items-center justify-between">
@@ -304,7 +357,9 @@ export default function Dashboard() {
                   <Bell size={18} />
                   <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-ruby" />
                 </button>
-                <div className="w-8 h-8 rounded-full bg-gold/20 flex items-center justify-center text-gold text-sm font-bold">S</div>
+                <div className="w-8 h-8 rounded-full bg-gold/20 flex items-center justify-center text-gold text-sm font-bold">
+                  {demoMode ? 'D' : userName.charAt(0)}
+                </div>
               </div>
             </div>
           </div>
@@ -312,7 +367,9 @@ export default function Dashboard() {
           <div className="p-8 space-y-8">
             {/* Header */}
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-              <h1 className="font-display text-3xl font-bold text-white mb-1">Good morning, Sameer</h1>
+              <h1 className="font-display text-3xl font-bold text-white mb-1">
+                {greeting()}, {demoMode ? 'Demo User' : userName}
+              </h1>
               <p className="text-ink">4 new signals detected overnight. 1 requires your attention.</p>
             </motion.div>
 
@@ -388,7 +445,6 @@ export default function Dashboard() {
 
             {/* Signals + Ask AI + Active Events */}
             <div className="grid grid-cols-3 gap-6">
-              {/* Latest signals */}
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="font-display font-semibold text-white">Latest Signals</h3>
@@ -399,13 +455,11 @@ export default function Dashboard() {
                 </div>
               </motion.div>
 
-              {/* Ask AI */}
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
                 <h3 className="font-display font-semibold text-white mb-4">Get Advice</h3>
                 <AskAI />
               </motion.div>
 
-              {/* Active events */}
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="font-display font-semibold text-white">Active Events</h3>

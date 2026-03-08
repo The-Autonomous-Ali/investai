@@ -18,19 +18,19 @@ logger = structlog.get_logger()
 
 client = AsyncAnthropic()
 
-ORCHESTRATOR_PROMPT = """You are the Orchestrator of InvestAI, a financial intelligence system for Indian markets.
+ORCHESTRATOR_PROMPT = """You are the Orchestrator of InvestAI, a financial intelligence system for global markets.
 
-A user has submitted a query. Your job is to:
+A user from {country} has submitted a query. Your job is to:
 1. Understand the intent
 2. Build an ordered task plan
 3. Identify which agents are needed
 
 Available agents:
 - signal_watcher: Gets current top market signals
-- research_agent: Deep-dives a signal for India-specific impacts
+- research_agent: Deep-dives a signal for {country}-specific impacts
 - pattern_matcher: Finds historical analogues for current events
 - portfolio_agent: Builds specific allocation plan
-- tax_agent: Optimizes allocation for India tax efficiency
+- tax_agent: Optimizes allocation for {country} tax efficiency
 - memory_agent: Retrieves/stores user history
 - temporal_agent: Assesses event lifecycle and time horizon
 
@@ -38,6 +38,7 @@ User query: {query}
 User profile summary: {user_profile}
 Investment amount: {amount}
 Time horizon: {horizon}
+Country: {country}
 
 Return a JSON task plan:
 {{
@@ -73,7 +74,7 @@ class OrchestratorAgent:
             "investment_manager":     InvestmentManagerAgent(db_session),
         }
 
-    async def run(self, user_id: str, query: str, amount: float, horizon: str) -> dict:
+    async def run(self, user_id: str, query: str, amount: float, horizon: str, country: str = "India") -> dict:
         """Main entry point. Orchestrates all agents to answer user query."""
         start_time = time.time()
         log = logger.bind(user_id=user_id, query=query[:50])
@@ -85,6 +86,7 @@ class OrchestratorAgent:
             "query": query,
             "amount": amount,
             "horizon": horizon,
+            "country": country,
             "agent_outputs": {},
             "agent_logs": {},
             "conflicts": [],
@@ -187,6 +189,7 @@ class OrchestratorAgent:
                     user_profile=profile_summary,
                     amount=state["amount"],
                     horizon=state["horizon"],
+                    country=state["country"],
                 )
             }]
         )
@@ -241,6 +244,7 @@ class OrchestratorAgent:
                 "user_profile": state["user_profile"],
                 "amount":       state["amount"],
                 "horizon":      state["horizon"],
+                "country":      state["country"],
                 "query":        state["query"],
                 **state["agent_outputs"],   # pass all previous outputs
             }
@@ -250,15 +254,15 @@ class OrchestratorAgent:
                 result = await agent.get_current_signals()
             elif agent_name == "research_agent":
                 signals = state["agent_outputs"].get("signal_watcher", {}).get("signals", [])
-                result  = await agent.analyze(signals)
+                result  = await agent.analyze(signals, state["country"])
             elif agent_name == "pattern_matcher":
                 signals = state["agent_outputs"].get("signal_watcher", {}).get("signals", [])
-                result  = await agent.find_patterns(signals)
+                result  = await agent.find_patterns(signals, state["country"])
             elif agent_name == "portfolio_agent":
                 result  = await agent.run(agent_input)
             elif agent_name == "tax_agent":
                 portfolio = state["agent_outputs"].get("portfolio_agent", {})
-                result    = await agent.optimize(portfolio, state["user_profile"])
+                result    = await agent.optimize(portfolio, state["user_profile"], state["country"])
             elif agent_name == "temporal_agent":
                 signals = state["agent_outputs"].get("signal_watcher", {}).get("signals", [])
                 result  = await agent.assess_timelines(signals)

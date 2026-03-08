@@ -15,8 +15,8 @@ export const getSignalTimeline = (id) =>
   api.get(`/api/agents/signals/${id}/timeline`).then(r => r.data)
 
 // ── AI Advice ────────────────────────────────────────────────────────────────
-export const getAdvice = ({ query, amount, horizon }) =>
-  api.post('/api/agents/advice', { query, amount, horizon }).then(r => r.data)
+export const getAdvice = ({ query, amount, horizon, country }) =>
+  api.post('/api/agents/advice', { query, amount, horizon, country }).then(r => r.data)
 
 // ── Portfolio ────────────────────────────────────────────────────────────────
 export const getPortfolio = (userId) =>
