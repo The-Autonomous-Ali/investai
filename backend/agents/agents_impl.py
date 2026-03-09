@@ -4,11 +4,15 @@ Portfolio Agent — Builds specific allocation plans.
 import json
 import os
 import google.generativeai as genai
+from anthropic import AsyncAnthropic
 from datetime import datetime, timedelta
 
-def get_gemini_model(model_name):
+def get_anthropic_client():
+    return AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+def get_gemini_model(model_name="gemini-1.5-flash"):
     genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-    return genai.GenerativeModel(model_name)
+    return genai.GenerativeModel(model_name=model_name)
 
 PORTFOLIO_PROMPT = """You are a portfolio construction specialist for {country} retail investors.
 
@@ -65,19 +69,32 @@ class PortfolioAgent:
         country   = inputs.get("country", "India")
         feedback  = inputs.get("critic_feedback", "None")
 
-        model = get_gemini_model("gemini-2.0-flash")
-        response = await model.generate_content_async(
-            PORTFOLIO_PROMPT.format(
-                research=json.dumps(research, indent=2)[:2000],
-                patterns=json.dumps(patterns, indent=2)[:1000],
-                user_profile=json.dumps(profile, indent=2)[:500],
-                amount=f"{amount:,.0f}",
-                horizon=horizon,
-                country=country,
-                critic_feedback=feedback,
-            )
+        prompt = PORTFOLIO_PROMPT.format(
+            research=json.dumps(research, indent=2)[:2000],
+            patterns=json.dumps(patterns, indent=2)[:1000],
+            user_profile=json.dumps(profile, indent=2)[:500],
+            amount=f"{amount:,.0f}",
+            horizon=horizon,
+            country=country,
+            critic_feedback=feedback,
         )
-        text = response.text.strip().replace("```json","").replace("```","").strip()
+
+        provider = os.getenv("AI_PROVIDER", "gemini")
+
+        if provider == "anthropic":
+            client = get_anthropic_client()
+            response = await client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=2048,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            text = response.content[0].text
+        else:
+            model = get_gemini_model("gemini-1.5-flash")
+            response = await model.generate_content_async(prompt)
+            text = response.text
+
+        text = text.strip().replace("```json","").replace("```","").strip()
         return json.loads(text)
 
 
@@ -119,18 +136,31 @@ Return ONLY valid JSON:
 
 class TaxAgent:
     async def optimize(self, portfolio: dict, profile: dict, country: str = "India") -> dict:
-        model = get_gemini_model("gemini-1.5-flash")
-        response = await model.generate_content_async(
-            TAX_PROMPT.format(
-                allocation=json.dumps(portfolio.get("allocation", {}), indent=2),
-                profile=json.dumps({k: v for k, v in profile.items() if k in [
-                    "risk_tolerance", "experience_level", "investment_horizon"
-                ]}, indent=2),
-                tax_bracket=profile.get("tax_bracket", 30),
-                country=country,
-            )
+        prompt = TAX_PROMPT.format(
+            allocation=json.dumps(portfolio.get("allocation", {}), indent=2),
+            profile=json.dumps({k: v for k, v in profile.items() if k in [
+                "risk_tolerance", "experience_level", "investment_horizon"
+            ]}, indent=2),
+            tax_bracket=profile.get("tax_bracket", 30),
+            country=country,
         )
-        text = response.text.strip().replace("```json","").replace("```","").strip()
+
+        provider = os.getenv("AI_PROVIDER", "gemini")
+
+        if provider == "anthropic":
+            client = get_anthropic_client()
+            response = await client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=2048,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            text = response.content[0].text
+        else:
+            model = get_gemini_model("gemini-1.5-flash")
+            response = await model.generate_content_async(prompt)
+            text = response.text
+
+        text = text.strip().replace("```json","").replace("```","").strip()
         return json.loads(text)
 
 
@@ -173,17 +203,31 @@ Be strict but fair. REJECT only if advice is dangerous. REVISE if it needs adjus
 
 class CriticAgent:
     async def review(self, inputs: dict) -> dict:
-        model = get_gemini_model("gemini-2.0-flash")
-        response = await model.generate_content_async(
-            CRITIC_PROMPT.format(
-                portfolio=json.dumps(inputs.get("portfolio", {}), indent=2)[:1500],
-                tax=json.dumps(inputs.get("tax", {}), indent=2)[:500],
-                signals=json.dumps(inputs.get("signals", {}).get("signals", [])[:3], indent=2)[:500],
-                user_profile=json.dumps(inputs.get("user_profile", {}), indent=2)[:400],
-                conflicts=json.dumps(inputs.get("conflicts", []), indent=2),
-            )
+        prompt = CRITIC_PROMPT.format(
+            portfolio=json.dumps(inputs.get("portfolio", {}), indent=2)[:1500],
+            tax=json.dumps(inputs.get("tax", {}), indent=2)[:500],
+            signals=json.dumps(inputs.get("signals", {}).get("signals", [])[:3], indent=2)[:500],
+            user_profile=json.dumps(inputs.get("user_profile", {}), indent=2)[:400],
+            conflicts=json.dumps(inputs.get("conflicts", []), indent=2),
         )
-        text = response.text.strip().replace("```json","").replace("```","").strip()
+
+        provider = os.getenv("AI_PROVIDER", "gemini")
+
+        if provider == "anthropic":
+            client = get_anthropic_client()
+            response = await client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=2048,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            text = response.content[0].text
+        else:
+            model = get_gemini_model("gemini-1.5-flash")
+            # Gemini text generation
+            response = await model.generate_content_async(prompt)
+            text = response.text
+
+        text = text.strip().replace("```json","").replace("```","").strip()
         return json.loads(text)
 
 
@@ -313,20 +357,33 @@ class TemporalAgent:
         if not signals:
             return {"timelines": [], "overall_market_phase": "neutral"}
 
-        model = get_gemini_model("gemini-1.5-flash")
-        response = await model.generate_content_async(
-            TEMPORAL_PROMPT.format(
-                signals=json.dumps([
-                    {k: v for k, v in s.items() if k in [
-                        "title", "signal_type", "urgency", "importance_score",
-                        "entities_mentioned", "stage"
-                    ]}
-                    for s in signals[:5]
-                ], indent=2),
-                today=datetime.utcnow().strftime("%Y-%m-%d"),
-            )
+        prompt = TEMPORAL_PROMPT.format(
+            signals=json.dumps([
+                {k: v for k, v in s.items() if k in [
+                    "title", "signal_type", "urgency", "importance_score",
+                    "entities_mentioned", "stage"
+                ]}
+                for s in signals[:5]
+            ], indent=2),
+            today=datetime.utcnow().strftime("%Y-%m-%d"),
         )
-        text = response.text.strip().replace("```json","").replace("```","").strip()
+
+        provider = os.getenv("AI_PROVIDER", "gemini")
+
+        if provider == "anthropic":
+            client = get_anthropic_client()
+            response = await client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=2048,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            text = response.content[0].text
+        else:
+            model = get_gemini_model("gemini-1.5-flash")
+            response = await model.generate_content_async(prompt)
+            text = response.text
+
+        text = text.strip().replace("```json","").replace("```","").strip()
         return json.loads(text)
 
 
@@ -422,17 +479,30 @@ Analyze and return ONLY valid JSON:
         if not signals:
             return {"best_analogues": [], "confidence_score": 0.3}
 
-        model = get_gemini_model("gemini-1.5-flash")
-        response = await model.generate_content_async(
-            self.PATTERN_PROMPT.format(
-                signals=json.dumps([
-                    {k: v for k, v in s.items() if k in [
-                        "title", "signal_type", "entities_mentioned", "sectors_affected"
-                    ]}
-                    for s in signals[:5]
-                ], indent=2),
-                country=country,
-            )
+        prompt = self.PATTERN_PROMPT.format(
+            signals=json.dumps([
+                {k: v for k, v in s.items() if k in [
+                    "title", "signal_type", "entities_mentioned", "sectors_affected"
+                ]}
+                for s in signals[:5]
+            ], indent=2),
+            country=country,
         )
-        text = response.text.strip().replace("```json","").replace("```","").strip()
+
+        provider = os.getenv("AI_PROVIDER", "gemini")
+
+        if provider == "anthropic":
+            client = get_anthropic_client()
+            response = await client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=2048,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            text = response.content[0].text
+        else:
+            model = get_gemini_model("gemini-1.5-flash")
+            response = await model.generate_content_async(prompt)
+            text = response.text
+
+        text = text.strip().replace("```json","").replace("```","").strip()
         return json.loads(text)

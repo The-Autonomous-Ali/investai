@@ -12,13 +12,17 @@ import json
 import os
 import structlog
 import google.generativeai as genai
+from anthropic import AsyncAnthropic
 from datetime import datetime
 
 logger = structlog.get_logger()
 
-def get_gemini_model(model_name):
+def get_anthropic_client():
+    return AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+def get_gemini_model(model_name="gemini-1.5-flash"):
     genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-    return genai.GenerativeModel(model_name)
+    return genai.GenerativeModel(model_name=model_name)
 
 # ─── Prompts ──────────────────────────────────────────────────────────────────
 
@@ -467,19 +471,31 @@ class CompanyIntelligenceAgent:
             for s in signals[:5]
         ]
 
-        model = get_gemini_model("gemini-2.0-flash")
-        response = await model.generate_content_async(
-            COMPANY_PICKER_PROMPT.format(
-                signals=json.dumps(signals_summary, indent=2),
-                sectors_to_buy=json.dumps(sectors_to_buy, indent=2),
-                sectors_to_avoid=json.dumps(sectors_to_avoid, indent=2),
-                amount=f"{amount:,.0f}",
-                horizon=horizon,
-                risk_profile=risk_profile,
-            )
+        prompt = COMPANY_PICKER_PROMPT.format(
+            signals=json.dumps(signals_summary, indent=2),
+            sectors_to_buy=json.dumps(sectors_to_buy, indent=2),
+            sectors_to_avoid=json.dumps(sectors_to_avoid, indent=2),
+            amount=f"{amount:,.0f}",
+            horizon=horizon,
+            risk_profile=risk_profile,
         )
 
-        text = response.text.strip().replace("```json", "").replace("```", "").strip()
+        provider = os.getenv("AI_PROVIDER", "gemini")
+
+        if provider == "anthropic":
+            client = get_anthropic_client()
+            response = await client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=4096,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            text = response.content[0].text
+        else:
+            model = get_gemini_model("gemini-1.5-flash")
+            response = await model.generate_content_async(prompt)
+            text = response.text
+
+        text = text.strip().replace("```json", "").replace("```", "").strip()
         return json.loads(text)
 
 
@@ -521,22 +537,34 @@ class InvestmentManagerAgent:
             ])
         )
 
-        model = get_gemini_model("gemini-2.0-flash")
-        response = await model.generate_content_async(
-            INVESTMENT_MANAGER_PROMPT.format(
-                amount=f"{amount:,.0f}",
-                horizon=horizon,
-                risk_profile=user_profile.get("risk_tolerance", "moderate"),
-                monthly_income=user_profile.get("monthly_income_bracket", "unknown"),
-                existing_holdings=json.dumps(user_profile.get("current_holdings", []), indent=2),
-                company_picks=json.dumps(company_picks.get("sector_picks", [])[:3], indent=2)[:2000],
-                signals_summary=signals_summary,
-                temporal_outlook=temporal_outlook,
-                tax_bracket=user_profile.get("tax_bracket", 30),
-            )
+        prompt = INVESTMENT_MANAGER_PROMPT.format(
+            amount=f"{amount:,.0f}",
+            horizon=horizon,
+            risk_profile=user_profile.get("risk_tolerance", "moderate"),
+            monthly_income=user_profile.get("monthly_income_bracket", "unknown"),
+            existing_holdings=json.dumps(user_profile.get("current_holdings", []), indent=2),
+            company_picks=json.dumps(company_picks.get("sector_picks", [])[:3], indent=2)[:2000],
+            signals_summary=signals_summary,
+            temporal_outlook=temporal_outlook,
+            tax_bracket=user_profile.get("tax_bracket", 30),
         )
 
-        text = response.text.strip().replace("```json", "").replace("```", "").strip()
+        provider = os.getenv("AI_PROVIDER", "gemini")
+
+        if provider == "anthropic":
+            client = get_anthropic_client()
+            response = await client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=4096,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            text = response.content[0].text
+        else:
+            model = get_gemini_model("gemini-1.5-flash")
+            response = await model.generate_content_async(prompt)
+            text = response.text
+
+        text = text.strip().replace("```json", "").replace("```", "").strip()
         result = json.loads(text)
 
         log.info("investment_manager.complete", strategy=result.get("strategy_name", ""))

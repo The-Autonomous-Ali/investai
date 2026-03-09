@@ -9,14 +9,18 @@ import structlog
 from datetime import datetime, timedelta
 import os
 import google.generativeai as genai
+from anthropic import AsyncAnthropic
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 logger = structlog.get_logger()
 
-def get_gemini_model(model_name):
+def get_gemini_model(model_name="gemini-1.5-flash"):
     genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-    return genai.GenerativeModel(model_name)
+    return genai.GenerativeModel(model_name=model_name)
+
+def get_anthropic_client():
+    return AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 SIGNAL_CLASSIFIER_PROMPT = """You are a financial signal extractor specializing in Indian markets.
 
@@ -184,7 +188,7 @@ class SignalWatcherAgent:
             if existing:
                 continue
 
-            # Classify with Claude
+            # Classify with AI
             signal_data = await self._classify_signal(content, source["name"], source["tier"])
             if not signal_data or signal_data.get("importance_score", 0) < 3.0:
                 continue
@@ -220,21 +224,39 @@ class SignalWatcherAgent:
         return new_signals
 
     async def _classify_signal(self, content: str, source: str, tier: int) -> dict:
-        """Use Gemini to classify and extract signal data."""
+        """Use configured AI provider to classify and extract signal data."""
+        provider = os.getenv("AI_PROVIDER", "gemini")
         try:
-            model = get_gemini_model("gemini-1.5-flash")
-            response = await model.generate_content_async(
-                SIGNAL_CLASSIFIER_PROMPT.format(
-                    content = content[:1500],
-                    source  = source,
-                    tier    = tier,
+            if provider == "anthropic":
+                client = get_anthropic_client()
+                response = await client.messages.create(
+                    model      = "claude-3-5-haiku-20241022",
+                    max_tokens = 800,
+                    messages   = [{
+                        "role":    "user",
+                        "content": SIGNAL_CLASSIFIER_PROMPT.format(
+                            content = content[:1500],
+                            source  = source,
+                            tier    = tier,
+                        )
+                    }]
                 )
-            )
-            text = response.text.strip()
+                text = response.content[0].text.strip()
+            else:
+                model = get_gemini_model("gemini-1.5-flash")
+                response = await model.generate_content_async(
+                    SIGNAL_CLASSIFIER_PROMPT.format(
+                        content = content[:1500],
+                        source  = source,
+                        tier    = tier,
+                    )
+                )
+                text = response.text.strip()
+            
             text = text.replace("```json", "").replace("```", "").strip()
             return json.loads(text)
         except Exception as e:
-            logger.warning("signal_classifier.error", error=str(e))
+            logger.warning("signal_classifier.error", provider=provider, error=str(e))
             return {}
 
     async def _get_market_snapshot(self) -> dict:

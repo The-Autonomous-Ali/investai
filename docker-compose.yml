@@ -27,6 +27,7 @@ services:
     ports:
       - "8000:8000"
     environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - DATABASE_URL=postgresql://investai:investai@postgres:5432/investai
       - REDIS_URL=redis://redis:6379
@@ -98,6 +99,7 @@ services:
       dockerfile: Dockerfile
     command: python worker.py
     environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - DATABASE_URL=postgresql://investai:investai@postgres:5432/investai
       - REDIS_URL=redis://redis:6379

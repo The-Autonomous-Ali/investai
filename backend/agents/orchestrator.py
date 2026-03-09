@@ -10,6 +10,7 @@ import os
 import json
 from typing import Any
 import google.generativeai as genai
+from anthropic import AsyncAnthropic
 
 from .signal_watcher import SignalWatcherAgent
 from .research_agent import ResearchAgent
@@ -18,7 +19,10 @@ from .company_intelligence import CompanyIntelligenceAgent, InvestmentManagerAge
 
 logger = structlog.get_logger()
 
-def get_gemini_model(model_name="gemini-2.0-flash"):
+def get_anthropic_client():
+    return AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+def get_gemini_model(model_name="gemini-1.5-flash"):
     genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
     return genai.GenerativeModel(model_name=model_name)
 
@@ -182,8 +186,6 @@ class OrchestratorAgent:
     async def _build_task_plan(self, state: dict) -> dict:
         """Ask the LLM to build an ordered task plan for this query."""
         profile_summary = self._summarize_profile(state["user_profile"])
-
-        model = get_gemini_model("gemini-2.0-flash")
         prompt = ORCHESTRATOR_PROMPT.format(
             query=state["query"],
             user_profile=profile_summary,
@@ -191,9 +193,22 @@ class OrchestratorAgent:
             horizon=state["horizon"],
             country=state["country"],
         )
-        
-        response = await model.generate_content_async(prompt)
-        text = response.text
+
+        provider = os.getenv("AI_PROVIDER", "gemini")
+
+        if provider == "anthropic":
+            client = get_anthropic_client()
+            response = await client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=2048,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            text = response.content[0].text
+        else:
+            model = get_gemini_model("gemini-1.5-flash")
+            response = await model.generate_content_async(prompt)
+            text = response.text
+
         # Strip markdown if present
         text = text.replace("```json", "").replace("```", "").strip()
         return json.loads(text)
