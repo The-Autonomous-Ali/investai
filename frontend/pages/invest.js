@@ -3,7 +3,7 @@ import { useRouter } from 'next/router'
 import Head from 'next/head'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
-  TrendingUp, Brain, Globe, Shield, Zap, 
+  TrendingUp, TrendingDown, Brain, Globe, Shield, Zap, 
   ChevronRight, RefreshCw, BarChart2, Activity,
   AlertCircle, DollarSign, Clock, MapPin
 } from 'lucide-react'
@@ -42,9 +42,17 @@ export default function InvestPage() {
   const handleAnalyze = async () => {
     if (!query || !amount) return
     setLoading(true)
+    setResponse(null) // Reset before new analysis
     try {
       const data = await getAdvice({ query, amount: Number(amount), horizon, country })
-      setResponse(data.recommendation)
+      if (data.success && data.recommendation) {
+        setResponse({
+          ...data.recommendation,
+          is_demo: data.meta?.is_mock || data.recommendation?.is_demo
+        })
+      } else {
+        alert('Agents were unable to reach a consensus. Please try a more specific query.')
+      }
     } catch (error) {
       console.error('Failed to get advice:', error)
       alert('Failed to connect to AI agents. Please ensure the backend is running.')

@@ -66,7 +66,7 @@ class PortfolioAgent:
 
         client = get_anthropic_client()
         response = await client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-3-5-sonnet-20241022",
             max_tokens=2000,
             messages=[{"role": "user", "content": PORTFOLIO_PROMPT.format(
                 research=json.dumps(research, indent=2)[:2000],
@@ -122,7 +122,7 @@ class TaxAgent:
     async def optimize(self, portfolio: dict, profile: dict, country: str = "India") -> dict:
         client = get_anthropic_client()
         response = await client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-3-5-haiku-20241022",
             max_tokens=1500,
             messages=[{"role": "user", "content": TAX_PROMPT.format(
                 allocation=json.dumps(portfolio.get("allocation", {}), indent=2),
@@ -178,7 +178,7 @@ class CriticAgent:
     async def review(self, inputs: dict) -> dict:
         client = get_anthropic_client()
         response = await client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-3-5-sonnet-20241022",
             max_tokens=1000,
             messages=[{"role": "user", "content": CRITIC_PROMPT.format(
                 portfolio=json.dumps(inputs.get("portfolio", {}), indent=2)[:1500],
@@ -320,7 +320,7 @@ class TemporalAgent:
 
         client = get_anthropic_client()
         response = await client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-3-5-haiku-20241022",
             max_tokens=1500,
             messages=[{"role": "user", "content": TEMPORAL_PROMPT.format(
                 signals=json.dumps([
@@ -431,7 +431,7 @@ Analyze and return ONLY valid JSON:
 
         client = get_anthropic_client()
         response = await client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-3-5-haiku-20241022",
             max_tokens=1500,
             messages=[{"role": "user", "content": self.PATTERN_PROMPT.format(
                 signals=json.dumps([

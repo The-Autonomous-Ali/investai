@@ -93,6 +93,48 @@ class SignalWatcherAgent:
         )
         signals = result.scalars().all()
 
+        if not signals:
+            # FALLBACK: Return mock signals if DB is empty
+            return {
+                "signals": [
+                    {
+                        "id": "mock_1",
+                        "title": "Brent Crude Approaches $96 on Middle East Tensions",
+                        "signal_type": "commodity",
+                        "urgency": "breaking",
+                        "importance_score": 9.1,
+                        "confidence": 0.85,
+                        "sentiment": "negative",
+                        "entities_mentioned": ["Oil", "Middle East"],
+                        "sectors_affected": {"aviation": "negative", "energy": "positive", "paints": "negative"},
+                        "chain_effects": ["Oil spike -> CAD widening", "INR depreciation -> FII outflows"],
+                        "stage": "ESCALATING",
+                        "source": "Mock Engine",
+                        "detected_at": datetime.utcnow().isoformat(),
+                        "is_mock": True
+                    },
+                    {
+                        "id": "mock_2",
+                        "title": "RBI Governor: 'Vigilant on inflation, committed to 4% target'",
+                        "signal_type": "monetary",
+                        "urgency": "developing",
+                        "importance_score": 8.8,
+                        "confidence": 0.92,
+                        "sentiment": "neutral",
+                        "entities_mentioned": ["RBI", "Inflation"],
+                        "sectors_affected": {"banking": "positive", "real estate": "neutral"},
+                        "chain_effects": ["Rate hold likely -> Banking NIM stable"],
+                        "stage": "ACTIVE",
+                        "source": "Mock Engine",
+                        "detected_at": datetime.utcnow().isoformat(),
+                        "is_mock": True
+                    }
+                ],
+                "market_snapshot": await self._get_market_snapshot(),
+                "last_updated": datetime.utcnow().isoformat(),
+                "note": "Running in Demo Mode: Using mock signals as the live scraper is still warming up."
+            }
+
         data = {
             "signals":         [self._signal_to_dict(s) for s in signals],
             "market_snapshot": await self._get_market_snapshot(),
@@ -181,7 +223,7 @@ class SignalWatcherAgent:
         try:
             client = get_anthropic_client()
             response = await client.messages.create(
-                model      = "claude-haiku-4-5-20251001",
+                model      = "claude-3-5-haiku-20241022",
                 max_tokens = 800,
                 messages   = [{
                     "role":    "user",
