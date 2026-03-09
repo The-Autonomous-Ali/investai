@@ -7,8 +7,9 @@ import asyncio
 import time
 import structlog
 import os
+import json
 from typing import Any
-from anthropic import AsyncAnthropic
+import google.generativeai as genai
 
 from .signal_watcher import SignalWatcherAgent
 from .research_agent import ResearchAgent
@@ -17,8 +18,9 @@ from .company_intelligence import CompanyIntelligenceAgent, InvestmentManagerAge
 
 logger = structlog.get_logger()
 
-def get_anthropic_client():
-    return AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+def get_gemini_model(model_name="gemini-2.0-flash"):
+    genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+    return genai.GenerativeModel(model_name=model_name)
 
 ORCHESTRATOR_PROMPT = """You are the Orchestrator of InvestAI, a financial intelligence system for global markets.
 
@@ -181,24 +183,17 @@ class OrchestratorAgent:
         """Ask the LLM to build an ordered task plan for this query."""
         profile_summary = self._summarize_profile(state["user_profile"])
 
-        client = get_anthropic_client()
-        response = await client.messages.create(
-            model="claude-3-5-sonnet-20241022",
-            max_tokens=1000,
-            messages=[{
-                "role": "user",
-                "content": ORCHESTRATOR_PROMPT.format(
-                    query=state["query"],
-                    user_profile=profile_summary,
-                    amount=state["amount"],
-                    horizon=state["horizon"],
-                    country=state["country"],
-                )
-            }]
+        model = get_gemini_model("gemini-2.0-flash")
+        prompt = ORCHESTRATOR_PROMPT.format(
+            query=state["query"],
+            user_profile=profile_summary,
+            amount=state["amount"],
+            horizon=state["horizon"],
+            country=state["country"],
         )
-
-        import json
-        text = response.content[0].text
+        
+        response = await model.generate_content_async(prompt)
+        text = response.text
         # Strip markdown if present
         text = text.replace("```json", "").replace("```", "").strip()
         return json.loads(text)

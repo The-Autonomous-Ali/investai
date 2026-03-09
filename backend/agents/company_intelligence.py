@@ -9,12 +9,16 @@ Once sectors are identified, this agent:
 5. Provides entry guidance for each pick
 """
 import json
+import os
 import structlog
-from anthropic import AsyncAnthropic
+import google.generativeai as genai
 from datetime import datetime
 
 logger = structlog.get_logger()
-client = AsyncAnthropic()
+
+def get_gemini_model(model_name):
+    genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+    return genai.GenerativeModel(model_name)
 
 # ─── Prompts ──────────────────────────────────────────────────────────────────
 
@@ -463,23 +467,19 @@ class CompanyIntelligenceAgent:
             for s in signals[:5]
         ]
 
-        response = await client.messages.create(
-            model="claude-3-5-sonnet-20241022",
-            max_tokens=4000,
-            messages=[{
-                "role": "user",
-                "content": COMPANY_PICKER_PROMPT.format(
-                    signals=json.dumps(signals_summary, indent=2),
-                    sectors_to_buy=json.dumps(sectors_to_buy, indent=2),
-                    sectors_to_avoid=json.dumps(sectors_to_avoid, indent=2),
-                    amount=f"{amount:,.0f}",
-                    horizon=horizon,
-                    risk_profile=risk_profile,
-                )
-            }]
+        model = get_gemini_model("gemini-2.0-flash")
+        response = await model.generate_content_async(
+            COMPANY_PICKER_PROMPT.format(
+                signals=json.dumps(signals_summary, indent=2),
+                sectors_to_buy=json.dumps(sectors_to_buy, indent=2),
+                sectors_to_avoid=json.dumps(sectors_to_avoid, indent=2),
+                amount=f"{amount:,.0f}",
+                horizon=horizon,
+                risk_profile=risk_profile,
+            )
         )
 
-        text = response.content[0].text.strip().replace("```json", "").replace("```", "").strip()
+        text = response.text.strip().replace("```json", "").replace("```", "").strip()
         return json.loads(text)
 
 
@@ -521,26 +521,22 @@ class InvestmentManagerAgent:
             ])
         )
 
-        response = await client.messages.create(
-            model="claude-3-5-sonnet-20241022",
-            max_tokens=4000,
-            messages=[{
-                "role": "user",
-                "content": INVESTMENT_MANAGER_PROMPT.format(
-                    amount=f"{amount:,.0f}",
-                    horizon=horizon,
-                    risk_profile=user_profile.get("risk_tolerance", "moderate"),
-                    monthly_income=user_profile.get("monthly_income_bracket", "unknown"),
-                    existing_holdings=json.dumps(user_profile.get("current_holdings", []), indent=2),
-                    company_picks=json.dumps(company_picks.get("sector_picks", [])[:3], indent=2)[:2000],
-                    signals_summary=signals_summary,
-                    temporal_outlook=temporal_outlook,
-                    tax_bracket=user_profile.get("tax_bracket", 30),
-                )
-            }]
+        model = get_gemini_model("gemini-2.0-flash")
+        response = await model.generate_content_async(
+            INVESTMENT_MANAGER_PROMPT.format(
+                amount=f"{amount:,.0f}",
+                horizon=horizon,
+                risk_profile=user_profile.get("risk_tolerance", "moderate"),
+                monthly_income=user_profile.get("monthly_income_bracket", "unknown"),
+                existing_holdings=json.dumps(user_profile.get("current_holdings", []), indent=2),
+                company_picks=json.dumps(company_picks.get("sector_picks", [])[:3], indent=2)[:2000],
+                signals_summary=signals_summary,
+                temporal_outlook=temporal_outlook,
+                tax_bracket=user_profile.get("tax_bracket", 30),
+            )
         )
 
-        text = response.content[0].text.strip().replace("```json", "").replace("```", "").strip()
+        text = response.text.strip().replace("```json", "").replace("```", "").strip()
         result = json.loads(text)
 
         log.info("investment_manager.complete", strategy=result.get("strategy_name", ""))

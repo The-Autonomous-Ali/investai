@@ -8,14 +8,15 @@ import feedparser
 import structlog
 from datetime import datetime, timedelta
 import os
-from anthropic import AsyncAnthropic
+import google.generativeai as genai
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 logger = structlog.get_logger()
 
-def get_anthropic_client():
-    return AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+def get_gemini_model(model_name):
+    genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+    return genai.GenerativeModel(model_name)
 
 SIGNAL_CLASSIFIER_PROMPT = """You are a financial signal extractor specializing in Indian markets.
 
@@ -219,22 +220,18 @@ class SignalWatcherAgent:
         return new_signals
 
     async def _classify_signal(self, content: str, source: str, tier: int) -> dict:
-        """Use Claude Haiku to classify and extract signal data."""
+        """Use Gemini to classify and extract signal data."""
         try:
-            client = get_anthropic_client()
-            response = await client.messages.create(
-                model      = "claude-3-5-haiku-20241022",
-                max_tokens = 800,
-                messages   = [{
-                    "role":    "user",
-                    "content": SIGNAL_CLASSIFIER_PROMPT.format(
-                        content = content[:1500],
-                        source  = source,
-                        tier    = tier,
-                    )
-                }]
+            model = get_gemini_model("gemini-1.5-flash")
+            response = await model.generate_content_async(
+                SIGNAL_CLASSIFIER_PROMPT.format(
+                    content = content[:1500],
+                    source  = source,
+                    tier    = tier,
+                )
             )
-            text = response.content[0].text.strip()
+            text = response.text.strip()
+            text = text.replace("```json", "").replace("```", "").strip()
             return json.loads(text)
         except Exception as e:
             logger.warning("signal_classifier.error", error=str(e))
