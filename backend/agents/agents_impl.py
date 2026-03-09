@@ -2,10 +2,12 @@
 Portfolio Agent — Builds specific allocation plans.
 """
 import json
+import os
 from anthropic import AsyncAnthropic
 from datetime import datetime, timedelta
 
-client = AsyncAnthropic()
+def get_anthropic_client():
+    return AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 PORTFOLIO_PROMPT = """You are a portfolio construction specialist for {country} retail investors.
 
@@ -62,6 +64,7 @@ class PortfolioAgent:
         country   = inputs.get("country", "India")
         feedback  = inputs.get("critic_feedback", "None")
 
+        client = get_anthropic_client()
         response = await client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=2000,
@@ -117,6 +120,7 @@ Return ONLY valid JSON:
 
 class TaxAgent:
     async def optimize(self, portfolio: dict, profile: dict, country: str = "India") -> dict:
+        client = get_anthropic_client()
         response = await client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=1500,
@@ -172,6 +176,7 @@ Be strict but fair. REJECT only if advice is dangerous. REVISE if it needs adjus
 
 class CriticAgent:
     async def review(self, inputs: dict) -> dict:
+        client = get_anthropic_client()
         response = await client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=1000,
@@ -195,23 +200,30 @@ class MemoryAgent:
 
     async def get_user_context(self, user_id: str) -> dict:
         from models.models import User, AdviceRecord, PortfolioItem
-        user = self.db.query(User).filter(User.id == user_id).first()
+        from sqlalchemy import select
+
+        # FIXED: Use select() for async session
+        result = await self.db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        
         if not user:
             return {}
 
-        past_advice = (
-            self.db.query(AdviceRecord)
-            .filter(AdviceRecord.user_id == user_id)
+        # FIXED: Use select() for async session
+        result = await self.db.execute(
+            select(AdviceRecord)
+            .where(AdviceRecord.user_id == user_id)
             .order_by(AdviceRecord.created_at.desc())
             .limit(5)
-            .all()
         )
+        past_advice = result.scalars().all()
 
-        holdings = (
-            self.db.query(PortfolioItem)
-            .filter(PortfolioItem.user_id == user_id, PortfolioItem.is_active == True)
-            .all()
+        # FIXED: Use select() for async session
+        result = await self.db.execute(
+            select(PortfolioItem)
+            .where(PortfolioItem.user_id == user_id, PortfolioItem.is_active == True)
         )
+        holdings = result.scalars().all()
 
         return {
             "risk_tolerance":      user.risk_tolerance,
@@ -255,7 +267,7 @@ class MemoryAgent:
             review_date=datetime.utcnow() + timedelta(days=90),
         )
         self.db.add(rec)
-        self.db.commit()
+        await self.db.commit() # FIXED: async commit
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -306,6 +318,7 @@ class TemporalAgent:
         if not signals:
             return {"timelines": [], "overall_market_phase": "neutral"}
 
+        client = get_anthropic_client()
         response = await client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=1500,
@@ -416,6 +429,7 @@ Analyze and return ONLY valid JSON:
         if not signals:
             return {"best_analogues": [], "confidence_score": 0.3}
 
+        client = get_anthropic_client()
         response = await client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=1500,

@@ -5,11 +5,15 @@ a full India-specific impact analysis.
 """
 import json
 import structlog
+import os
 from anthropic import AsyncAnthropic
 from neo4j import AsyncGraphDatabase
+from sqlalchemy import select
 
 logger = structlog.get_logger()
-client = AsyncAnthropic()
+
+def get_anthropic_client():
+    return AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 RESEARCH_PROMPT = """You are an expert analyst specializing in how global and domestic events impact the {country} economy and stock markets.
 
@@ -181,9 +185,10 @@ class ResearchAgent:
     async def _get_accuracy_note(self, signal_types: list) -> str:
         """Get self-calibration note based on past accuracy."""
         from models.models import AgentPerformance
-        perf = self.db.query(AgentPerformance).filter(
-            AgentPerformance.agent_name == "research_agent"
-        ).first()
+        result = await self.db.execute(
+            select(AgentPerformance).where(AgentPerformance.agent_name == "research_agent")
+        )
+        perf = result.scalar_one_or_none()
 
         if not perf or not perf.signal_type_accuracy:
             return "Insufficient historical data for calibration."
@@ -208,6 +213,7 @@ class ResearchAgent:
             for s in signals[:5]
         ], indent=2)
 
+        client = get_anthropic_client()
         response = await client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=2000,

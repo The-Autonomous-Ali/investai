@@ -6,6 +6,7 @@ assembles the final output, and passes it through the Critic.
 import asyncio
 import time
 import structlog
+import os
 from typing import Any
 from anthropic import AsyncAnthropic
 
@@ -16,7 +17,8 @@ from .company_intelligence import CompanyIntelligenceAgent, InvestmentManagerAge
 
 logger = structlog.get_logger()
 
-client = AsyncAnthropic()
+def get_anthropic_client():
+    return AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 ORCHESTRATOR_PROMPT = """You are the Orchestrator of InvestAI, a financial intelligence system for global markets.
 
@@ -179,6 +181,7 @@ class OrchestratorAgent:
         """Ask the LLM to build an ordered task plan for this query."""
         profile_summary = self._summarize_profile(state["user_profile"])
 
+        client = get_anthropic_client()
         response = await client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=1000,

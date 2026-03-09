@@ -7,12 +7,15 @@ import json
 import feedparser
 import structlog
 from datetime import datetime, timedelta
+import os
 from anthropic import AsyncAnthropic
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 logger = structlog.get_logger()
-client = AsyncAnthropic()
+
+def get_anthropic_client():
+    return AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 SIGNAL_CLASSIFIER_PROMPT = """You are a financial signal extractor specializing in Indian markets.
 
@@ -176,6 +179,7 @@ class SignalWatcherAgent:
     async def _classify_signal(self, content: str, source: str, tier: int) -> dict:
         """Use Claude Haiku to classify and extract signal data."""
         try:
+            client = get_anthropic_client()
             response = await client.messages.create(
                 model      = "claude-haiku-4-5-20251001",
                 max_tokens = 800,

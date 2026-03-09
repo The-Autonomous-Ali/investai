@@ -39,7 +39,7 @@ app = FastAPI(
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "https://investai.in"],
+    allow_origins=["http://localhost:3000", "http://192.168.99.100:3000", "https://investai.in"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
