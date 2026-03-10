@@ -10,7 +10,8 @@ from datetime import datetime, timedelta
 def get_anthropic_client():
     return AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
-def get_gemini_model(model_name="gemini-1.5-flash"):
+def get_gemini_model(model_name=None):
+    model_name = model_name or os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
     genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
     return genai.GenerativeModel(model_name=model_name)
 
@@ -90,7 +91,7 @@ class PortfolioAgent:
             )
             text = response.content[0].text
         else:
-            model = get_gemini_model("gemini-1.5-flash")
+            model = get_gemini_model()
             response = await model.generate_content_async(prompt)
             text = response.text
 
@@ -156,7 +157,7 @@ class TaxAgent:
             )
             text = response.content[0].text
         else:
-            model = get_gemini_model("gemini-1.5-flash")
+            model = get_gemini_model()
             response = await model.generate_content_async(prompt)
             text = response.text
 
@@ -222,7 +223,7 @@ class CriticAgent:
             )
             text = response.content[0].text
         else:
-            model = get_gemini_model("gemini-1.5-flash")
+            model = get_gemini_model()
             # Gemini text generation
             response = await model.generate_content_async(prompt)
             text = response.text
@@ -379,7 +380,7 @@ class TemporalAgent:
             )
             text = response.content[0].text
         else:
-            model = get_gemini_model("gemini-1.5-flash")
+            model = get_gemini_model()
             response = await model.generate_content_async(prompt)
             text = response.text
 
@@ -500,7 +501,7 @@ Analyze and return ONLY valid JSON:
             )
             text = response.content[0].text
         else:
-            model = get_gemini_model("gemini-1.5-flash")
+            model = get_gemini_model()
             response = await model.generate_content_async(prompt)
             text = response.text
 
