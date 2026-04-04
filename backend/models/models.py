@@ -40,6 +40,7 @@ class SignalType(str, enum.Enum):
     CURRENCY     = "currency"
     CORPORATE    = "corporate"
     NATURAL      = "natural_disaster"
+    TRADE        = "trade"
 
 class SignalUrgency(str, enum.Enum):
     BREAKING    = "breaking"

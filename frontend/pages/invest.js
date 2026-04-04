@@ -7,7 +7,11 @@ import {
   ChevronRight, RefreshCw, BarChart2, Activity,
   AlertCircle, DollarSign, Clock, MapPin
 } from 'lucide-react'
-import { getAdvice } from '../lib/api'
+import axios from 'axios'
+
+// FIX: hardcode the correct IP directly — env variables don't work reliably
+// in Next.js Docker on Docker Machine
+const API_URL = 'http://192.168.99.100:8000'
 
 const COUNTRIES = [
   { code: 'IN', name: 'India', flag: '🇮🇳' },
@@ -42,9 +46,16 @@ export default function InvestPage() {
   const handleAnalyze = async () => {
     if (!query || !amount) return
     setLoading(true)
-    setResponse(null) // Reset before new analysis
+    setResponse(null)
     try {
-      const data = await getAdvice({ query, amount: Number(amount), horizon, country })
+      // FIX: call backend directly using hardcoded IP
+      const res = await axios.post(`${API_URL}/api/agents/advice`, {
+        query,
+        amount: Number(amount),
+        horizon,
+        country,
+      })
+      const data = res.data
       if (data.success && data.recommendation) {
         setResponse({
           ...data.recommendation,

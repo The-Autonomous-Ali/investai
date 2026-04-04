@@ -9,6 +9,7 @@ import structlog
 
 from database.connection import init_db
 from routes import auth, users, signals, portfolio, agents, subscriptions, alerts
+from routes.whatif import router as whatif_router
 from utils.scheduler import start_scheduler, stop_scheduler
 
 logger = structlog.get_logger()
@@ -35,17 +36,21 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# Middleware
+# ── Middleware ─────────────────────────────────────────────────────────────────
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://192.168.99.100:3000", "https://investai.in"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://192.168.99.100:3000",
+        "https://investai.in",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Routers
+# ── Routers ────────────────────────────────────────────────────────────────────
 app.include_router(auth.router,          prefix="/api/auth",          tags=["Auth"])
 app.include_router(users.router,         prefix="/api/users",         tags=["Users"])
 app.include_router(signals.router,       prefix="/api/signals",       tags=["Signals"])
@@ -53,8 +58,10 @@ app.include_router(portfolio.router,     prefix="/api/portfolio",     tags=["Por
 app.include_router(agents.router,        prefix="/api/agents",        tags=["Agents"])
 app.include_router(subscriptions.router, prefix="/api/subscriptions", tags=["Subscriptions"])
 app.include_router(alerts.router,        prefix="/api/alerts",        tags=["Alerts"])
+app.include_router(whatif_router,        prefix="/api/whatif",        tags=["WhatIf"])
 
 
+# ── Health Check ───────────────────────────────────────────────────────────────
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "version": "1.0.0"}

@@ -1,6 +1,6 @@
 """
 Signal Watcher Agent - Monitors all sources and detects market signals.
-Runs continuously in the background and also on-demand.
+UPDATED: Live market data from Yahoo Finance — replaces stale mock prices.
 """
 import hashlib
 import json
@@ -8,20 +8,12 @@ import feedparser
 import structlog
 from datetime import datetime, timedelta
 import os
-import google.generativeai as genai
-from anthropic import AsyncAnthropic
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from utils.llm_client import call_llm
+
 logger = structlog.get_logger()
-
-def get_gemini_model(model_name=None):
-    model_name = model_name or os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
-    genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-    return genai.GenerativeModel(model_name=model_name)
-
-def get_anthropic_client():
-    return AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 SIGNAL_CLASSIFIER_PROMPT = """You are a financial signal extractor specializing in Indian markets.
 
@@ -30,22 +22,24 @@ Analyze this content and extract structured signal data.
 Content: {content}
 Source: {source}
 Source Tier: {tier}
+Source Region: {region}
 
 Extract and return ONLY valid JSON (no markdown, no preamble):
 {{
   "title": "concise signal title (max 100 chars)",
-  "signal_type": "geopolitical|monetary|fiscal|commodity|currency|corporate|natural_disaster",
+  "signal_type": "geopolitical|monetary|fiscal|commodity|currency|corporate|natural_disaster|trade",
   "urgency": "breaking|developing|long_term",
   "importance_score": 0.0-10.0,
   "confidence": 0.0-1.0,
-  "geography": "global|regional|india",
+  "geography": "global|regional|india|us|europe|china|middle_east",
   "sentiment": "positive|negative|neutral",
-  "entities_mentioned": ["Iran", "Oil", "RBI"],
+  "entities_mentioned": ["Fed", "Oil", "RBI"],
   "sectors_affected": {{
     "aviation": "negative",
     "energy": "positive"
   }},
   "india_impact": "high|medium|low|none",
+  "india_impact_reasoning": "Why this affects India specifically",
   "second_order_effects": [
     "Oil spike -> INR depreciation -> FII outflows",
     "Higher input costs -> FMCG margin pressure"
@@ -53,26 +47,99 @@ Extract and return ONLY valid JSON (no markdown, no preamble):
   "requires_immediate_analysis": true
 }}
 
-If the content has no meaningful financial signal for Indian markets, return:
+If content has no meaningful financial signal for Indian markets, return:
 {{"importance_score": 0, "requires_immediate_analysis": false}}
 """
 
+VALID_SIGNAL_TYPES = {
+    "geopolitical", "monetary", "fiscal", "commodity",
+    "currency", "corporate", "natural_disaster", "trade"
+}
+
+# ── RSS Sources — Global + India ──────────────────────────────────────────────
+
 RSS_SOURCES = [
-    # Tier 1 - Official
-    {"url": "https://rbi.org.in/scripts/rss.aspx",                                          "name": "RBI",               "tier": 1},
-    {"url": "https://www.sebi.gov.in/rss/index.html",                                        "name": "SEBI",              "tier": 1},
-    {"url": "https://pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=3",                       "name": "Ministry Finance",  "tier": 1},
+    # ── TIER 1: Central Banks & Regulators ───────────────────────────────────
+    {"url": "https://www.federalreserve.gov/feeds/press_all.xml",                        "name": "US Federal Reserve",     "tier": 1, "region": "us"},
+    {"url": "https://www.ecb.europa.eu/rss/press.html",                                  "name": "European Central Bank",  "tier": 1, "region": "europe"},
+    {"url": "https://rbi.org.in/scripts/rss.aspx",                                       "name": "RBI",                    "tier": 1, "region": "india"},
+    {"url": "https://www.sebi.gov.in/rss/index.html",                                    "name": "SEBI",                   "tier": 1, "region": "india"},
+    {"url": "https://pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=3",                   "name": "Ministry of Finance",    "tier": 1, "region": "india"},
+    {"url": "https://www.imf.org/en/News/rss?language=eng",                              "name": "IMF",                    "tier": 1, "region": "global"},
+    {"url": "https://www.worldbank.org/en/news/rss",                                     "name": "World Bank",             "tier": 1, "region": "global"},
+    {"url": "https://www.opec.org/opec_web/en/press_room/rss.htm",                      "name": "OPEC",                   "tier": 1, "region": "middle_east"},
 
-    # Tier 2 - Financial Media
-    {"url": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",          "name": "Economic Times",    "tier": 2},
-    {"url": "https://www.livemint.com/rss/markets",                                          "name": "Mint Markets",      "tier": 2},
-    {"url": "https://www.business-standard.com/rss/markets-106.rss",                         "name": "Business Standard", "tier": 2},
-    {"url": "https://www.moneycontrol.com/rss/results.xml",                                  "name": "Moneycontrol",      "tier": 2},
+    # ── TIER 2: Major Global News ─────────────────────────────────────────────
+    {"url": "https://feeds.reuters.com/reuters/businessNews",                            "name": "Reuters Business",       "tier": 2, "region": "global"},
+    {"url": "https://feeds.reuters.com/reuters/topNews",                                 "name": "Reuters Top News",       "tier": 2, "region": "global"},
+    {"url": "https://feeds.bbci.co.uk/news/business/rss.xml",                           "name": "BBC Business",           "tier": 2, "region": "global"},
+    {"url": "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml",                "name": "NYT Business",           "tier": 2, "region": "us"},
+    {"url": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",                            "name": "Wall Street Journal",    "tier": 2, "region": "us"},
 
-    # Tier 3 - Global Context
-    {"url": "https://feeds.reuters.com/reuters/businessNews",                                "name": "Reuters Business",  "tier": 3},
-    {"url": "https://www.imf.org/en/News/rss?language=eng",                                  "name": "IMF",               "tier": 3},
+    # ── TIER 2: India Financial Media ─────────────────────────────────────────
+    {"url": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",      "name": "Economic Times Markets", "tier": 2, "region": "india"},
+    {"url": "https://economictimes.indiatimes.com/economy/rssfeeds/1373380680.cms",      "name": "Economic Times Economy", "tier": 2, "region": "india"},
+    {"url": "https://www.livemint.com/rss/markets",                                      "name": "Mint Markets",           "tier": 2, "region": "india"},
+    {"url": "https://www.livemint.com/rss/economy",                                      "name": "Mint Economy",           "tier": 2, "region": "india"},
+    {"url": "https://www.business-standard.com/rss/markets-106.rss",                     "name": "Business Standard",      "tier": 2, "region": "india"},
+    {"url": "https://www.moneycontrol.com/rss/results.xml",                              "name": "Moneycontrol",           "tier": 2, "region": "india"},
+    {"url": "https://www.financialexpress.com/market/feed/",                             "name": "Financial Express",      "tier": 2, "region": "india"},
+
+    # ── TIER 3: Regional & Commodity Sources ──────────────────────────────────
+    {"url": "https://oilprice.com/rss/main",                                             "name": "OilPrice.com",           "tier": 3, "region": "global"},
+    {"url": "https://www.mining.com/feed/",                                              "name": "Mining.com",             "tier": 3, "region": "global"},
+    {"url": "https://www.scmp.com/rss/5/feed",                                           "name": "SCMP China Business",    "tier": 3, "region": "china"},
+    {"url": "https://japannews.yomiuri.co.jp/feed/",                                     "name": "Japan News",             "tier": 3, "region": "japan"},
+    {"url": "https://www.arabianbusiness.com/rss",                                       "name": "Arabian Business",       "tier": 3, "region": "middle_east"},
+    {"url": "https://www.thehindubusinessline.com/markets/feeder/default.rss",           "name": "Hindu BusinessLine",     "tier": 3, "region": "india"},
 ]
+
+# ── Yahoo Finance symbol mapping ──────────────────────────────────────────────
+YAHOO_SYMBOLS = {
+    "nifty50":      "^NSEI",
+    "sensex":       "^BSESN",
+    "india_vix":    "^INDIAVIX",
+    "usd_inr":      "USDINR=X",
+    "brent_crude":  "BZ=F",
+    "wti_crude":    "CL=F",
+    "gold_spot":    "GC=F",
+    "silver_spot":  "SI=F",
+    "natural_gas":  "NG=F",
+    "us_10y_yield": "^TNX",
+    "us_2y_yield":  "^IRX",
+    "dxy":          "DX-Y.NYB",
+    "vix_us":       "^VIX",
+    "sp500":        "^GSPC",
+    "nasdaq":       "^IXIC",
+    "ftse100":      "^ISF.L",
+    "dax":          "^GDAXI",
+    "nikkei":       "^N225",
+    "hang_seng":    "^HSI",
+    "china_csi300": "000300.SS",
+}
+
+SNAPSHOT_LABELS = {
+    "nifty50":      {"unit": "INR points"},
+    "sensex":       {"unit": "INR points"},
+    "india_vix":    {"note": "India fear index — above 20 = high fear"},
+    "usd_inr":      {"note": "INR per USD — higher = weaker rupee"},
+    "brent_crude":  {"unit": "USD/barrel"},
+    "wti_crude":    {"unit": "USD/barrel"},
+    "gold_spot":    {"unit": "USD/oz"},
+    "silver_spot":  {"unit": "USD/oz"},
+    "natural_gas":  {"unit": "USD/MMBtu"},
+    "us_10y_yield": {"unit": "%", "note": "above 4.5% = FII outflow pressure on India"},
+    "us_2y_yield":  {"unit": "%"},
+    "dxy":          {"note": "strong dollar = INR pressure + FII outflows"},
+    "vix_us":       {"note": "US fear index — above 20 = risk-off globally"},
+    "sp500":        {"unit": "USD points"},
+    "nasdaq":       {"unit": "USD points"},
+    "ftse100":      {"unit": "GBP points"},
+    "dax":          {"unit": "EUR points"},
+    "nikkei":       {"unit": "JPY points"},
+    "hang_seng":    {"unit": "HKD points"},
+    "china_csi300": {"unit": "CNY points"},
+}
 
 
 class SignalWatcherAgent:
@@ -80,16 +147,14 @@ class SignalWatcherAgent:
         self.db    = db_session
         self.redis = redis_client
 
-    async def get_current_signals(self, limit: int = 10) -> dict:
+    async def get_current_signals(self, limit: int = 15) -> dict:
         """Get top current signals from cache or DB."""
         from models.models import Signal
 
-        # Try cache first
         cached = await self._get_cached_signals()
         if cached:
             return cached
 
-        # ✅ FIXED: Use async SQLAlchemy select() instead of .query()
         result = await self.db.execute(
             select(Signal)
             .where(Signal.importance_score >= 5.0)
@@ -100,46 +165,7 @@ class SignalWatcherAgent:
         signals = result.scalars().all()
 
         if not signals:
-            # FALLBACK: Return mock signals if DB is empty
-            return {
-                "signals": [
-                    {
-                        "id": "mock_1",
-                        "title": "Brent Crude Approaches $96 on Middle East Tensions",
-                        "signal_type": "commodity",
-                        "urgency": "breaking",
-                        "importance_score": 9.1,
-                        "confidence": 0.85,
-                        "sentiment": "negative",
-                        "entities_mentioned": ["Oil", "Middle East"],
-                        "sectors_affected": {"aviation": "negative", "energy": "positive", "paints": "negative"},
-                        "chain_effects": ["Oil spike -> CAD widening", "INR depreciation -> FII outflows"],
-                        "stage": "ESCALATING",
-                        "source": "Mock Engine",
-                        "detected_at": datetime.utcnow().isoformat(),
-                        "is_mock": True
-                    },
-                    {
-                        "id": "mock_2",
-                        "title": "RBI Governor: 'Vigilant on inflation, committed to 4% target'",
-                        "signal_type": "monetary",
-                        "urgency": "developing",
-                        "importance_score": 8.8,
-                        "confidence": 0.92,
-                        "sentiment": "neutral",
-                        "entities_mentioned": ["RBI", "Inflation"],
-                        "sectors_affected": {"banking": "positive", "real estate": "neutral"},
-                        "chain_effects": ["Rate hold likely -> Banking NIM stable"],
-                        "stage": "ACTIVE",
-                        "source": "Mock Engine",
-                        "detected_at": datetime.utcnow().isoformat(),
-                        "is_mock": True
-                    }
-                ],
-                "market_snapshot": await self._get_market_snapshot(),
-                "last_updated": datetime.utcnow().isoformat(),
-                "note": "Running in Demo Mode: Using mock signals as the live scraper is still warming up."
-            }
+            return await self._get_mock_signals_with_live_prices()
 
         data = {
             "signals":         [self._signal_to_dict(s) for s in signals],
@@ -150,9 +176,99 @@ class SignalWatcherAgent:
         await self._cache_signals(data)
         return data
 
+    async def _get_mock_signals_with_live_prices(self) -> dict:
+        """Mock signals but with LIVE prices from Yahoo Finance."""
+        live_snapshot = await self._get_market_snapshot()
+
+        brent_price = live_snapshot.get("brent_crude", {}).get("value", 84)
+        brent_title = f"Brent Crude at ${brent_price:.0f} — Middle East Tensions Continue"
+
+        india_vix = live_snapshot.get("india_vix", {}).get("value", 14)
+        vix_note  = "high_fear" if india_vix > 20 else "moderate_fear" if india_vix > 15 else "low_fear"
+
+        return {
+            "signals": [
+                {
+                    "id": "mock_1",
+                    "title": brent_title,
+                    "signal_type": "commodity",
+                    "urgency": "breaking" if brent_price > 95 else "developing",
+                    "importance_score": 9.1 if brent_price > 95 else 7.5,
+                    "confidence": 0.85,
+                    "sentiment": "negative",
+                    "geography": "middle_east",
+                    "entities_mentioned": ["Oil", "Middle East", "OPEC"],
+                    "sectors_affected": {"aviation": "negative", "energy": "positive", "paints": "negative"},
+                    "chain_effects": ["Oil spike -> CAD widening", "INR depreciation -> FII outflows"],
+                    "india_impact": "high",
+                    "stage": "ESCALATING",
+                    "source": "Live Price Feed",
+                    "detected_at": datetime.utcnow().isoformat(),
+                    "is_mock": True
+                },
+                {
+                    "id": "mock_2",
+                    "title": "US Federal Reserve Signals Rates Higher for Longer",
+                    "signal_type": "monetary",
+                    "urgency": "developing",
+                    "importance_score": 9.3,
+                    "confidence": 0.91,
+                    "sentiment": "negative",
+                    "geography": "us",
+                    "entities_mentioned": ["Federal Reserve", "USD", "US Treasuries"],
+                    "sectors_affected": {"banking": "negative", "it": "negative", "gold": "positive"},
+                    "chain_effects": ["Fed hawkish -> DXY strengthens -> FII outflows from India"],
+                    "india_impact": "high",
+                    "stage": "DEVELOPING",
+                    "source": "Mock Engine",
+                    "detected_at": datetime.utcnow().isoformat(),
+                    "is_mock": True
+                },
+                {
+                    "id": "mock_3",
+                    "title": "RBI Governor: Vigilant on Inflation, Committed to 4% Target",
+                    "signal_type": "monetary",
+                    "urgency": "developing",
+                    "importance_score": 8.8,
+                    "confidence": 0.92,
+                    "sentiment": "neutral",
+                    "geography": "india",
+                    "entities_mentioned": ["RBI", "Inflation", "Repo Rate"],
+                    "sectors_affected": {"banking": "positive", "real_estate": "neutral"},
+                    "chain_effects": ["Rate hold likely -> Banking NIM stable"],
+                    "india_impact": "high",
+                    "stage": "ACTIVE",
+                    "source": "Mock Engine",
+                    "detected_at": datetime.utcnow().isoformat(),
+                    "is_mock": True
+                },
+                {
+                    "id": "mock_4",
+                    "title": "China PMI Contracts for Third Consecutive Month",
+                    "signal_type": "trade",
+                    "urgency": "developing",
+                    "importance_score": 7.8,
+                    "confidence": 0.88,
+                    "sentiment": "negative",
+                    "geography": "china",
+                    "entities_mentioned": ["China", "PMI", "Manufacturing"],
+                    "sectors_affected": {"metals": "negative", "commodities": "negative"},
+                    "chain_effects": ["China slowdown -> Commodity demand drop -> India steel sector pressure"],
+                    "india_impact": "medium",
+                    "stage": "DEVELOPING",
+                    "source": "Mock Engine",
+                    "detected_at": datetime.utcnow().isoformat(),
+                    "is_mock": True
+                },
+            ],
+            "market_snapshot": live_snapshot,
+            "last_updated": datetime.utcnow().isoformat(),
+            "note": f"Demo Mode: Mock signals with LIVE market prices. India VIX: {india_vix:.1f} ({vix_note})",
+        }
+
     async def scan_all_sources(self):
         """Full scan of all sources. Called by the background worker."""
-        logger.info("signal_watcher.full_scan.start")
+        logger.info("signal_watcher.full_scan.start", total_sources=len(RSS_SOURCES))
         new_signals = []
 
         for source in RSS_SOURCES:
@@ -166,7 +282,6 @@ class SignalWatcherAgent:
         return new_signals
 
     async def _scan_rss(self, source: dict) -> list:
-        """Scan a single RSS feed and extract signals."""
         from models.models import Signal
 
         try:
@@ -181,107 +296,179 @@ class SignalWatcherAgent:
             content      = f"{entry.get('title', '')} {entry.get('summary', '')}"
             content_hash = hashlib.md5(content.encode()).hexdigest()
 
-            # ✅ FIXED: Async duplicate check
-            result   = await self.db.execute(
-                select(Signal).where(Signal.content_hash == content_hash)
-            )
-            existing = result.scalar_one_or_none()
-            if existing:
+            try:
+                result   = await self.db.execute(
+                    select(Signal).where(Signal.content_hash == content_hash)
+                )
+                existing = result.scalar_one_or_none()
+                if existing:
+                    continue
+
+                signal_data = await self._classify_signal(
+                    content, source["name"], source["tier"], source.get("region", "global")
+                )
+                if not signal_data or signal_data.get("importance_score", 0) < 3.0:
+                    continue
+
+                # FIX: Sanitize signal_type — if AI returns an invalid value,
+                # fall back to "monetary" instead of crashing the whole session
+                raw_type = signal_data.get("signal_type", "monetary")
+                safe_type = raw_type if raw_type in VALID_SIGNAL_TYPES else "monetary"
+
+                signal = Signal(
+                    title                 = signal_data.get("title", entry.get("title", ""))[:100],
+                    content               = content[:2000],
+                    source                = source["name"],
+                    source_agent          = "rss_agent",
+                    source_tier           = source["tier"],
+                    signal_type           = safe_type,
+                    urgency               = signal_data.get("urgency", "developing"),
+                    importance_score      = signal_data.get("importance_score", 5.0),
+                    confidence            = signal_data.get("confidence", 0.5),
+                    geography             = signal_data.get("geography", "global"),
+                    sentiment             = signal_data.get("sentiment", "neutral"),
+                    entities_mentioned    = signal_data.get("entities_mentioned", []),
+                    sectors_affected      = signal_data.get("sectors_affected", {}),
+                    india_impact_analysis = signal_data.get("india_impact", "medium"),
+                    chain_effects         = signal_data.get("second_order_effects", []),
+                    final_weight          = signal_data.get("confidence", 0.5) * source["tier"] / 4,
+                    content_hash          = content_hash,
+                )
+
+                self.db.add(signal)
+                await self.db.flush()  # FIX: flush per signal so errors don't poison the whole session
+                new_signals.append(signal)
+                logger.info("signal_watcher.new_signal",
+                            title=signal.title, source=source["name"],
+                            score=signal.importance_score, region=source.get("region"))
+
+            except Exception as e:
+                # FIX: rollback after each bad signal so the session stays alive for the next one
+                await self.db.rollback()
+                logger.warning("signal_watcher.signal_skipped",
+                               source=source["name"], error=str(e))
                 continue
-
-            # Classify with AI
-            signal_data = await self._classify_signal(content, source["name"], source["tier"])
-            if not signal_data or signal_data.get("importance_score", 0) < 3.0:
-                continue
-
-            signal = Signal(
-                title               = signal_data.get("title", entry.get("title", ""))[:100],
-                content             = content[:2000],
-                source              = source["name"],
-                source_agent        = "rss_agent",
-                source_tier         = source["tier"],
-                signal_type         = signal_data.get("signal_type", "monetary"),
-                urgency             = signal_data.get("urgency", "developing"),
-                importance_score    = signal_data.get("importance_score", 5.0),
-                confidence          = signal_data.get("confidence", 0.5),
-                geography           = signal_data.get("geography", "india"),
-                sentiment           = signal_data.get("sentiment", "neutral"),
-                entities_mentioned  = signal_data.get("entities_mentioned", []),
-                sectors_affected    = signal_data.get("sectors_affected", {}),
-                india_impact_analysis = signal_data.get("india_impact", "medium"),
-                chain_effects       = signal_data.get("second_order_effects", []),
-                final_weight        = signal_data.get("confidence", 0.5) * source["tier"] / 4,
-                content_hash        = content_hash,
-            )
-
-            self.db.add(signal)
-            new_signals.append(signal)
-            logger.info("signal_watcher.new_signal", title=signal.title, source=source["name"], score=signal.importance_score)
 
         if new_signals:
-            await self.db.commit()  # ✅ FIXED: async commit
-            logger.info("signal_watcher.saved", count=len(new_signals), source=source["name"])
+            try:
+                await self.db.commit()
+                logger.info("signal_watcher.saved", count=len(new_signals), source=source["name"])
+            except Exception as e:
+                await self.db.rollback()
+                logger.warning("signal_watcher.commit_failed", source=source["name"], error=str(e))
 
         return new_signals
 
-    async def _classify_signal(self, content: str, source: str, tier: int) -> dict:
-        """Use configured AI provider to classify and extract signal data."""
-        provider = os.getenv("AI_PROVIDER", "gemini")
+    async def _classify_signal(self, content: str, source: str, tier: int, region: str = "global") -> dict:
+        prompt = SIGNAL_CLASSIFIER_PROMPT.format(
+            content=content[:1500],
+            source=source,
+            tier=tier,
+            region=region,
+        )
         try:
-            if provider == "anthropic":
-                client = get_anthropic_client()
-                response = await client.messages.create(
-                    model      = "claude-3-5-haiku-20241022",
-                    max_tokens = 800,
-                    messages   = [{
-                        "role":    "user",
-                        "content": SIGNAL_CLASSIFIER_PROMPT.format(
-                            content = content[:1500],
-                            source  = source,
-                            tier    = tier,
-                        )
-                    }]
-                )
-                text = response.content[0].text.strip()
-            else:
-                model = get_gemini_model()
-                response = await model.generate_content_async(
-                    SIGNAL_CLASSIFIER_PROMPT.format(
-                        content = content[:1500],
-                        source  = source,
-                        tier    = tier,
-                    )
-                )
-                text = response.text.strip()
-            
-            text = text.replace("```json", "").replace("```", "").strip()
+            text = await call_llm(prompt, agent_name="signal_watcher")
             return json.loads(text)
         except Exception as e:
-            logger.warning("signal_classifier.error", provider=provider, error=str(e))
+            logger.warning("signal_classifier.error", error=str(e))
             return {}
 
+    # ── LIVE MARKET DATA — Yahoo Finance (free, no API key) ───────────────────
+
+    async def _fetch_yahoo_price(self, symbol: str) -> float | None:
+        """Fetch single price from Yahoo Finance."""
+        try:
+            import httpx
+            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1m&range=1d"
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            async with httpx.AsyncClient(timeout=8) as client:
+                r    = await client.get(url, headers=headers)
+                data = r.json()
+                return data["chart"]["result"][0]["meta"]["regularMarketPrice"]
+        except Exception:
+            return None
+
+    async def _get_live_snapshot(self) -> dict:
+        import asyncio
+
+        async def fetch_one(key: str, symbol: str) -> tuple:
+            price = await self._fetch_yahoo_price(symbol)
+            return key, price
+
+        tasks   = [fetch_one(k, s) for k, s in YAHOO_SYMBOLS.items()]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        snapshot = {}
+        failed   = []
+
+        for result in results:
+            if isinstance(result, Exception):
+                continue
+            key, price = result
+            if price is not None:
+                label = SNAPSHOT_LABELS.get(key, {})
+                snapshot[key] = {"value": round(price, 2), **label}
+            else:
+                failed.append(key)
+
+        if failed:
+            logger.warning("market_snapshot.fetch_failed", symbols=failed)
+
+        snapshot["timestamp"]      = datetime.utcnow().isoformat()
+        snapshot["data_source"]    = "Yahoo Finance (live)"
+        snapshot["fetch_failures"] = failed
+        snapshot["fii_today"]      = {"value": None, "unit": "crore INR", "note": "NSE API needed for live FII data"}
+        snapshot["dii_today"]      = {"value": None, "unit": "crore INR", "note": "NSE API needed for live DII data"}
+
+        return snapshot
+
     async def _get_market_snapshot(self) -> dict:
-        """Get current market data snapshot."""
         cached = await self.redis.get("market_snapshot") if self.redis else None
         if cached:
             return json.loads(cached)
 
-        snapshot = {
-            "nifty50":     {"value": 22450.0, "change_pct": -0.42},
-            "sensex":      {"value": 73900.0, "change_pct": -0.38},
-            "india_vix":   {"value": 14.2,    "note": "low_fear"},
-            "usd_inr":     {"value": 83.45,   "change_pct": 0.12},
-            "brent_crude": {"value": 84.20,   "unit": "USD/barrel"},
-            "gold_mcx":    {"value": 63450.0, "unit": "INR/10g"},
-            "fii_today":   {"value": -820.0,  "unit": "crore INR"},
-            "dii_today":   {"value": 1240.0,  "unit": "crore INR"},
-            "timestamp":   datetime.utcnow().isoformat(),
+        logger.info("market_snapshot.fetching_live")
+        try:
+            snapshot = await self._get_live_snapshot()
+            critical = ["nifty50", "brent_crude", "usd_inr", "us_10y_yield"]
+            got = [k for k in critical if snapshot.get(k, {}).get("value") is not None]
+
+            if len(got) >= 2:
+                logger.info("market_snapshot.live_success",
+                            fields_fetched=len([k for k, v in snapshot.items()
+                                              if isinstance(v, dict) and v.get("value") is not None]))
+                if self.redis:
+                    await self.redis.setex("market_snapshot", 900, json.dumps(snapshot))
+                return snapshot
+            else:
+                logger.warning("market_snapshot.live_insufficient", got=got)
+                raise Exception("Insufficient live data")
+
+        except Exception as e:
+            logger.warning("market_snapshot.live_failed_using_fallback", error=str(e))
+            return self._get_fallback_snapshot()
+
+    def _get_fallback_snapshot(self) -> dict:
+        return {
+            "nifty50":          {"value": 23581.0,  "note": "ESTIMATE — live fetch failed"},
+            "sensex":           {"value": 76070.0,  "note": "ESTIMATE — live fetch failed"},
+            "india_vix":        {"value": 19.8,     "note": "ESTIMATE — live fetch failed"},
+            "usd_inr":          {"value": 92.42,    "note": "ESTIMATE — live fetch failed"},
+            "brent_crude":      {"value": 103.0,    "unit": "USD/barrel", "note": "ESTIMATE"},
+            "wti_crude":        {"value": 99.5,     "unit": "USD/barrel", "note": "ESTIMATE"},
+            "gold_spot":        {"value": 3000.0,   "unit": "USD/oz",     "note": "ESTIMATE"},
+            "silver_spot":      {"value": 34.0,     "unit": "USD/oz",     "note": "ESTIMATE"},
+            "natural_gas":      {"value": 4.1,      "unit": "USD/MMBtu",  "note": "ESTIMATE"},
+            "us_10y_yield":     {"value": 4.31,     "unit": "%",          "note": "ESTIMATE"},
+            "dxy":              {"value": 103.5,    "note": "ESTIMATE"},
+            "vix_us":           {"value": 21.0,     "note": "ESTIMATE"},
+            "sp500":            {"value": 5580.0,   "note": "ESTIMATE"},
+            "nasdaq":           {"value": 17500.0,  "note": "ESTIMATE"},
+            "fii_today":        {"value": None,     "unit": "crore INR"},
+            "dii_today":        {"value": None,     "unit": "crore INR"},
+            "timestamp":        datetime.utcnow().isoformat(),
+            "data_source":      "Fallback estimates — Yahoo Finance unreachable",
         }
-
-        if self.redis:
-            await self.redis.setex("market_snapshot", 900, json.dumps(snapshot))
-
-        return snapshot
 
     async def _get_cached_signals(self):
         if not self.redis:
@@ -302,6 +489,7 @@ class SignalWatcherAgent:
             "importance_score":   signal.importance_score,
             "confidence":         signal.confidence,
             "sentiment":          signal.sentiment,
+            "geography":          getattr(signal, "geography", "global"),
             "entities_mentioned": signal.entities_mentioned or [],
             "sectors_affected":   signal.sectors_affected or {},
             "chain_effects":      signal.chain_effects or [],

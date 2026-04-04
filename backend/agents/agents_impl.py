@@ -1,19 +1,24 @@
 """
 Portfolio Agent — Builds specific allocation plans.
+Tax Agent — Optimises for country-specific tax efficiency.
+Critic Agent — Stress-tests recommendations.
+Memory Agent — User context store.
+Temporal Agent — Event lifecycle assessment.
+Watchdog Agent — Conflict and anomaly detection.
+Pattern Matcher Agent — Historical analogue finder.
 """
 import json
 import os
-import google.generativeai as genai
-from anthropic import AsyncAnthropic
+import structlog
 from datetime import datetime, timedelta
 
-def get_anthropic_client():
-    return AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+from utils.llm_client import call_llm
 
-def get_gemini_model(model_name=None):
-    model_name = model_name or os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
-    genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-    return genai.GenerativeModel(model_name=model_name)
+logger = structlog.get_logger()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PORTFOLIO AGENT
+# ─────────────────────────────────────────────────────────────────────────────
 
 PORTFOLIO_PROMPT = """You are a portfolio construction specialist for {country} retail investors.
 
@@ -80,25 +85,12 @@ class PortfolioAgent:
             critic_feedback=feedback,
         )
 
-        provider = os.getenv("AI_PROVIDER", "gemini")
-
-        if provider == "anthropic":
-            client = get_anthropic_client()
-            response = await client.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=2048,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            text = response.content[0].text
-        else:
-            model = get_gemini_model()
-            response = await model.generate_content_async(prompt)
-            text = response.text
-
-        text = text.strip().replace("```json","").replace("```","").strip()
+        text = await call_llm(prompt, agent_name="portfolio_agent")
         return json.loads(text)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# TAX AGENT
 # ─────────────────────────────────────────────────────────────────────────────
 
 TAX_PROMPT = """You are a tax optimization specialist for {country}.
@@ -115,7 +107,7 @@ If the country is India, consider:
 - Sovereign Gold Bonds: tax-free on maturity
 ...
 
-If the country is NOT India, provide best-effort general tax optimization advice based on common global standards (like capital gains holding periods, tax-advantaged accounts like 401k/IRA/ISA, etc.).
+If the country is NOT India, provide best-effort general tax optimization advice based on common global standards.
 
 Return ONLY valid JSON:
 {{
@@ -146,25 +138,12 @@ class TaxAgent:
             country=country,
         )
 
-        provider = os.getenv("AI_PROVIDER", "gemini")
-
-        if provider == "anthropic":
-            client = get_anthropic_client()
-            response = await client.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=2048,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            text = response.content[0].text
-        else:
-            model = get_gemini_model()
-            response = await model.generate_content_async(prompt)
-            text = response.text
-
-        text = text.strip().replace("```json","").replace("```","").strip()
+        text = await call_llm(prompt, agent_name="tax_agent")
         return json.loads(text)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# CRITIC AGENT
 # ─────────────────────────────────────────────────────────────────────────────
 
 CRITIC_PROMPT = """You are a risk-focused critic reviewing an AI-generated investment recommendation.
@@ -212,26 +191,12 @@ class CriticAgent:
             conflicts=json.dumps(inputs.get("conflicts", []), indent=2),
         )
 
-        provider = os.getenv("AI_PROVIDER", "gemini")
-
-        if provider == "anthropic":
-            client = get_anthropic_client()
-            response = await client.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=2048,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            text = response.content[0].text
-        else:
-            model = get_gemini_model()
-            # Gemini text generation
-            response = await model.generate_content_async(prompt)
-            text = response.text
-
-        text = text.strip().replace("```json","").replace("```","").strip()
+        text = await call_llm(prompt, agent_name="critic_agent")
         return json.loads(text)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# MEMORY AGENT
 # ─────────────────────────────────────────────────────────────────────────────
 
 class MemoryAgent:
@@ -242,14 +207,12 @@ class MemoryAgent:
         from models.models import User, AdviceRecord, PortfolioItem
         from sqlalchemy import select
 
-        # FIXED: Use select() for async session
         result = await self.db.execute(select(User).where(User.id == user_id))
         user = result.scalar_one_or_none()
-        
+
         if not user:
             return {}
 
-        # FIXED: Use select() for async session
         result = await self.db.execute(
             select(AdviceRecord)
             .where(AdviceRecord.user_id == user_id)
@@ -258,7 +221,6 @@ class MemoryAgent:
         )
         past_advice = result.scalars().all()
 
-        # FIXED: Use select() for async session
         result = await self.db.execute(
             select(PortfolioItem)
             .where(PortfolioItem.user_id == user_id, PortfolioItem.is_active == True)
@@ -266,50 +228,68 @@ class MemoryAgent:
         holdings = result.scalars().all()
 
         return {
-            "risk_tolerance":      user.risk_tolerance,
-            "experience_level":    user.experience_level,
-            "tax_bracket":         user.tax_bracket,
-            "avoid_sectors":       user.avoid_sectors or [],
+            "risk_tolerance":        user.risk_tolerance,
+            "experience_level":      user.experience_level,
+            "tax_bracket":           user.tax_bracket,
+            "avoid_sectors":         user.avoid_sectors or [],
             "preferred_instruments": user.preferred_instruments or [],
-            "state":               user.state,
-            "subscription_tier":   user.subscription_tier,
-            "past_advice":         [
+            "state":                 user.state,
+            "subscription_tier":     user.subscription_tier,
+            "past_advice": [
                 {
-                    "date":       a.created_at.isoformat() if a.created_at else None,
-                    "query":      a.user_query,
-                    "narrative":  (a.narrative or "")[:200],
-                    "rating":     a.advice_rating,
+                    "date":      a.created_at.isoformat() if a.created_at else None,
+                    "query":     a.user_query,
+                    "narrative": (a.narrative or "")[:200],
+                    "rating":    a.advice_rating,
                 }
                 for a in past_advice
             ],
-            "current_holdings":    [
+            "current_holdings": [
                 {"symbol": h.symbol, "sector": h.sector, "instrument_type": h.instrument_type}
                 for h in holdings
             ],
         }
 
     async def store_advice(self, user_id: str, advice_data: dict):
-        from models.models import AdviceRecord
-        rec = AdviceRecord(
-            user_id=user_id,
-            user_query=advice_data.get("query"),
-            allocation_plan=advice_data.get("recommendation", {}).get("allocation"),
-            sectors_to_buy=advice_data.get("recommendation", {}).get("sectors_to_buy"),
-            sectors_to_avoid=advice_data.get("recommendation", {}).get("sectors_to_avoid"),
-            rebalancing_triggers=advice_data.get("recommendation", {}).get("rebalancing_triggers"),
-            tax_optimizations=advice_data.get("recommendation", {}).get("tax_optimizations"),
-            narrative=advice_data.get("recommendation", {}).get("narrative"),
-            reasoning_chain=advice_data.get("recommendation", {}).get("reasoning_chain"),
-            confidence_score=advice_data.get("recommendation", {}).get("confidence_score"),
-            triggering_signals=advice_data.get("signals_used"),
-            market_snapshot=advice_data.get("market_snapshot"),
-            critic_verdict=advice_data.get("critic_verdict"),
-            review_date=datetime.utcnow() + timedelta(days=90),
-        )
-        self.db.add(rec)
-        await self.db.commit() # FIXED: async commit
+        """Store advice record — skips silently if user doesn't exist (e.g. demo_user)."""
+        try:
+            from models.models import AdviceRecord, User
+            from sqlalchemy import select
+
+            # Check user exists before inserting — avoids foreign key violation
+            result = await self.db.execute(select(User).where(User.id == user_id))
+            user = result.scalar_one_or_none()
+            if not user:
+                logger.warning("memory_agent.store_advice_skipped",
+                               reason="user_not_found", user_id=user_id)
+                return
+
+            rec = AdviceRecord(
+                user_id=user_id,
+                user_query=advice_data.get("query"),
+                allocation_plan=advice_data.get("recommendation", {}).get("allocation"),
+                sectors_to_buy=advice_data.get("recommendation", {}).get("sectors_to_buy"),
+                sectors_to_avoid=advice_data.get("recommendation", {}).get("sectors_to_avoid"),
+                rebalancing_triggers=advice_data.get("recommendation", {}).get("rebalancing_triggers"),
+                tax_optimizations=advice_data.get("recommendation", {}).get("tax_optimizations"),
+                narrative=advice_data.get("recommendation", {}).get("narrative"),
+                reasoning_chain=advice_data.get("recommendation", {}).get("reasoning_chain"),
+                confidence_score=advice_data.get("recommendation", {}).get("confidence_score"),
+                triggering_signals=advice_data.get("signals_used"),
+                market_snapshot=advice_data.get("market_snapshot"),
+                critic_verdict=advice_data.get("critic_verdict"),
+                review_date=datetime.utcnow() + timedelta(days=90),
+            )
+            self.db.add(rec)
+            await self.db.commit()
+
+        except Exception as e:
+            await self.db.rollback()
+            logger.warning("memory_agent.store_advice_error", error=str(e))
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# TEMPORAL AGENT
 # ─────────────────────────────────────────────────────────────────────────────
 
 TEMPORAL_PROMPT = """You are a temporal analysis specialist. Classify the lifecycle stage and prediction timeline for these market events.
@@ -369,39 +349,22 @@ class TemporalAgent:
             today=datetime.utcnow().strftime("%Y-%m-%d"),
         )
 
-        provider = os.getenv("AI_PROVIDER", "gemini")
-
-        if provider == "anthropic":
-            client = get_anthropic_client()
-            response = await client.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=2048,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            text = response.content[0].text
-        else:
-            model = get_gemini_model()
-            response = await model.generate_content_async(prompt)
-            text = response.text
-
-        text = text.strip().replace("```json","").replace("```","").strip()
+        text = await call_llm(prompt, agent_name="temporal_agent")
         return json.loads(text)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# WATCHDOG AGENT
+# ─────────────────────────────────────────────────────────────────────────────
 
 class WatchdogAgent:
-    """Monitors all agent outputs for conflicts, reversals, and anomalies."""
-
     async def check(self, agent_outputs: dict) -> list:
         conflicts = []
 
-        signal_output   = agent_outputs.get("signal_watcher", {})
-        research_output = agent_outputs.get("research_agent", {})
-        pattern_output  = agent_outputs.get("pattern_matcher", {})
+        research_output  = agent_outputs.get("research_agent", {})
+        pattern_output   = agent_outputs.get("pattern_matcher", {})
         portfolio_output = agent_outputs.get("portfolio_agent", {})
 
-        # Check 1: Confidence gap between research and pattern matcher
         r_conf = research_output.get("confidence_score", 0.5)
         p_conf = pattern_output.get("confidence_score", 0.5) if pattern_output else 0.5
         if abs(r_conf - p_conf) > 0.4:
@@ -412,10 +375,9 @@ class WatchdogAgent:
                 "action": "add_uncertainty_disclosure",
             })
 
-        # Check 2: Sector contradiction between research and portfolio
-        research_avoid  = {s["sector"] for s in research_output.get("sectors_analysis", {}).get("avoid", [])}
-        portfolio_buy   = {s["sector"] for s in portfolio_output.get("sectors_to_buy", [])} if portfolio_output else set()
-        contradictions  = research_avoid & portfolio_buy
+        research_avoid = {s["sector"] for s in research_output.get("sectors_analysis", {}).get("avoid", [])}
+        portfolio_buy  = {s["sector"] for s in portfolio_output.get("sectors_to_buy", [])} if portfolio_output else set()
+        contradictions = research_avoid & portfolio_buy
         if contradictions:
             conflicts.append({
                 "type": "CONFLICT",
@@ -424,7 +386,6 @@ class WatchdogAgent:
                 "action": "flag_and_pause",
             })
 
-        # Check 3: Hallucination risk — check for unknown instruments
         if portfolio_output:
             allocation = portfolio_output.get("allocation", {})
             suspicious = [k for k in allocation.keys() if len(k) > 50]
@@ -440,10 +401,10 @@ class WatchdogAgent:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# PATTERN MATCHER AGENT
+# ─────────────────────────────────────────────────────────────────────────────
 
 class PatternMatcherAgent:
-    """Finds historical analogues for current market conditions."""
-
     PATTERN_PROMPT = """You are a market historian specializing in {country} and global markets.
 
 Find historical analogues for these current signals and what happened to {country} markets.
@@ -490,20 +451,5 @@ Analyze and return ONLY valid JSON:
             country=country,
         )
 
-        provider = os.getenv("AI_PROVIDER", "gemini")
-
-        if provider == "anthropic":
-            client = get_anthropic_client()
-            response = await client.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=2048,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            text = response.content[0].text
-        else:
-            model = get_gemini_model()
-            response = await model.generate_content_async(prompt)
-            text = response.text
-
-        text = text.strip().replace("```json","").replace("```","").strip()
+        text = await call_llm(prompt, agent_name="pattern_matcher")
         return json.loads(text)

@@ -1,4 +1,4 @@
-version: '3.3'
+version: '2.4'
 
 services:
   frontend:
@@ -7,18 +7,21 @@ services:
       dockerfile: Dockerfile
     ports:
       - "3000:3000"
+    env_file:
+      - .env
     environment:
-      - NEXTAUTH_URL=http://192.168.99.100:3000
+      - NEXTAUTH_URL=http://localhost:3000
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-      - NEXT_PUBLIC_API_URL=http://192.168.99.100:8000
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
     depends_on:
       - backend
     volumes:
       - ./frontend:/app
       - /app/node_modules
       - /app/.next
+    mem_limit: 512m
 
   backend:
     build:
@@ -26,9 +29,12 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - DATABASE_URL=postgresql://investai:investai@postgres:5432/investai
       - REDIS_URL=redis://redis:6379
       - NEO4J_URL=bolt://neo4j:7687
@@ -43,6 +49,7 @@ services:
       - neo4j
     volumes:
       - ./backend:/app
+    mem_limit: 512m
 
   postgres:
     image: postgres:15-alpine
@@ -54,12 +61,13 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U investai"]
       interval: 5s
       timeout: 5s
       retries: 5
+    mem_limit: 256m
 
   redis:
     image: redis:7-alpine
@@ -72,6 +80,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    mem_limit: 128m
 
   neo4j:
     image: neo4j:4.4-community
@@ -81,9 +90,10 @@ services:
     environment:
       - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-investai123}
       - NEO4J_PLUGINS=["apoc"]
-      - NEO4J_dbms_memory_heap_initial__size=128m
-      - NEO4J_dbms_memory_heap_max__size=256m
-      - NEO4J_dbms_memory_pagecache__size=64m
+      - NEO4J_dbms_memory_heap_initial__size=256m
+      - NEO4J_dbms_memory_heap_max__size=512m
+      - NEO4J_dbms_memory_pagecache__size=256m
+      - NEO4J_dbms_connector_bolt_listen__address=0.0.0.0:7687
     volumes:
       - neo4j_data:/data
       - ./infra/neo4j:/var/lib/neo4j/import
@@ -92,15 +102,19 @@ services:
       interval: 10s
       timeout: 10s
       retries: 10
+    mem_limit: 1024m
 
   worker:
     build:
       context: ./backend
       dockerfile: Dockerfile
     command: python worker.py
+    env_file:
+      - .env
     environment:
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - DATABASE_URL=postgresql://investai:investai@postgres:5432/investai
       - REDIS_URL=redis://redis:6379
       - NEO4J_URL=bolt://neo4j:7687
@@ -113,6 +127,7 @@ services:
       - neo4j
     volumes:
       - ./backend:/app
+    mem_limit: 384m
 
 volumes:
   postgres_data:
