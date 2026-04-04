@@ -3,53 +3,18 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Filter, TrendingUp, Activity, Globe, AlertTriangle, Clock, ChevronDown, ChevronUp } from 'lucide-react'
 import Link from 'next/link'
+import { useSignals } from '../hooks/useSignals'
 
-const SIGNALS = [
-  {
-    id: 1, title: 'Brent Crude Approaches $96 on Middle East Tensions',
-    source: 'Reuters', sourceTier: 2, urgency: 'breaking', importance: 9.1,
-    sentiment: 'negative', type: 'geopolitical', geography: 'global',
-    sectors: { Aviation: 'negative', 'Oil & Gas': 'positive', Paints: 'negative', Tyres: 'negative' },
-    chain_effects: ['Oil spike → CAD widening', 'INR depreciation → FII outflows', 'Inflation pressure → RBI caution'],
-    stage: 'ESCALATING', detected: '45 min ago', confidence: 0.82,
-    corroborated_by: ['Economic Times', 'Mint'],
-    tomorrow_prediction: 'Oil likely stays above $93. Aviation stocks under pressure.',
-    week_prediction: 'Watch for US strategic reserve release news as de-escalation signal.',
-  },
-  {
-    id: 2, title: 'RBI Governor: "Vigilant on inflation, committed to 4% target"',
-    source: 'RBI', sourceTier: 1, urgency: 'developing', importance: 8.8,
-    sentiment: 'neutral', type: 'monetary', geography: 'india',
-    sectors: { Banking: 'positive', 'Real Estate': 'neutral', 'Small Cap': 'negative' },
-    chain_effects: ['Rate hold likely → Banking NIM stable', 'Tight liquidity continues → NBFC stress', 'Bond yields stay elevated'],
-    stage: 'ACTIVE', detected: '2 hrs ago', confidence: 0.91,
-    corroborated_by: ['Economic Times', 'Business Standard', 'Mint'],
-    tomorrow_prediction: 'No immediate action. Watch MPC meeting scheduled for next week.',
-    week_prediction: 'Bond markets will price in "higher for longer" stance.',
-  },
-  {
-    id: 3, title: 'US Fed Signals Only 2 Rate Cuts in 2024 (vs 3 expected)',
-    source: 'Bloomberg', sourceTier: 2, urgency: 'developing', importance: 7.8,
-    sentiment: 'negative', type: 'monetary', geography: 'global',
-    sectors: { IT: 'positive', Banking: 'neutral', 'Real Estate': 'negative' },
-    chain_effects: ['Dollar strengthens → INR pressure', 'FII outflows from emerging markets', 'IT revenues boost in INR terms'],
-    stage: 'DEVELOPING', detected: '3 hrs ago', confidence: 0.76,
-    corroborated_by: ['Reuters'],
-    tomorrow_prediction: 'Dollar index may strengthen. Watch INR/USD.',
-    week_prediction: 'Emerging market outflows expected. India VIX may rise.',
-  },
-  {
-    id: 4, title: 'India Q3 GDP 7.2% Beats 6.8% Estimate',
-    source: 'MoSPI', sourceTier: 1, urgency: 'long_term', importance: 8.5,
-    sentiment: 'positive', type: 'fiscal', geography: 'india',
-    sectors: { Infrastructure: 'positive', FMCG: 'positive', Banking: 'positive', Auto: 'positive' },
-    chain_effects: ['Strong GDP → higher capex cycle', 'Government spending continues → infra boom', 'Consumer spending up → FMCG tailwind'],
-    stage: 'ACTIVE', detected: '5 hrs ago', confidence: 0.95,
-    corroborated_by: ['Economic Times', 'Mint', 'Business Standard'],
-    tomorrow_prediction: 'Market likely opens positive on GDP beat.',
-    week_prediction: 'Infrastructure and capex stocks may see sustained buying.',
-  },
-]
+// Helper: format relative time from ISO date string
+function timeAgo(isoDate) {
+  if (!isoDate) return ''
+  const diff = Date.now() - new Date(isoDate).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 60) return `${mins} min ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs} hrs ago`
+  return `${Math.floor(hrs / 24)}d ago`
+}
 
 const URGENCY_CONFIG = {
   breaking:   { label: 'BREAKING',    color: 'bg-ruby/10 text-ruby border border-ruby/20' },
@@ -156,6 +121,7 @@ function SignalDetail({ signal, onClose }) {
 }
 
 export default function SignalsPage() {
+  const { signals: SIGNALS, loading, isLive } = useSignals()
   const [selected, setSelected]   = useState(null)
   const [filter, setFilter]       = useState('all')
   const [expanded, setExpanded]   = useState({})
@@ -168,7 +134,22 @@ export default function SignalsPage() {
     { id: 'fiscal',       label: 'Fiscal' },
   ]
 
-  const filtered = SIGNALS.filter(s =>
+  // Normalize field names (API uses snake_case, mock used camelCase)
+  const normalizedSignals = SIGNALS.map(s => ({
+    ...s,
+    sourceTier: s.source_tier ?? s.sourceTier,
+    importance: s.importance_score ?? s.importance,
+    type: s.signal_type ?? s.type,
+    sectors: s.sectors_affected ?? s.sectors ?? {},
+    detected: s.detected_at ? timeAgo(s.detected_at) : (s.detected || ''),
+    chain_effects: s.chain_effects || [],
+    corroborated_by: s.corroborated_by || [],
+    confidence: s.confidence ?? 0,
+    stage: (s.stage || 'WATCH').toUpperCase(),
+    urgency: s.urgency || 'developing',
+  }))
+
+  const filtered = normalizedSignals.filter(s =>
     filter === 'all' || s.urgency === filter || s.type === filter
   )
 
@@ -190,9 +171,13 @@ export default function SignalsPage() {
               <span className="text-white font-medium">Signal Tracker</span>
             </div>
             <div className="flex items-center gap-2">
-              <Activity size={14} className="text-jade" />
-              <span className="text-jade text-xs font-mono">LIVE</span>
-              <span className="text-ink text-xs">· Updated 2m ago</span>
+              <Activity size={14} className={isLive ? "text-jade" : "text-gold"} />
+              <span className={`text-xs font-mono ${isLive ? "text-jade" : "text-gold"}`}>
+                {isLive ? "LIVE" : "DEMO"}
+              </span>
+              <span className="text-ink text-xs">
+                {isLive ? "· Real-time signals" : "· Connect backend for live data"}
+              </span>
             </div>
           </div>
         </div>

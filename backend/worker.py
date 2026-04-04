@@ -5,7 +5,6 @@ Background Worker — Runs scheduled tasks:
 - Every Sunday: Score 90-day-old advice performance
 """
 import asyncio
-import time
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -37,8 +36,6 @@ async def scan_signals():
 async def update_event_lifecycles():
     """Daily update of event lifecycle stages."""
     logger.info("worker.lifecycle_update.start")
-    # Update signal stages based on new information
-    # e.g., if oil drops below $88, de-escalate Hormuz signal
     logger.info("worker.lifecycle_update.complete")
 
 
@@ -49,21 +46,25 @@ async def score_advice_performance():
         from database.connection import AsyncSessionLocal
         from models.models import AdviceRecord
         from datetime import datetime, timedelta
-        from sqlalchemy import and_
+        from sqlalchemy import select, and_
 
         async with AsyncSessionLocal() as db:
             cutoff = datetime.utcnow() - timedelta(days=90)
-            old_advice = db.query(AdviceRecord).filter(
-                and_(
-                    AdviceRecord.created_at <= cutoff,
-                    AdviceRecord.advice_rating == None,
+
+            # FIX: use async execute + select() instead of db.query()
+            result = await db.execute(
+                select(AdviceRecord)
+                .where(
+                    and_(
+                        AdviceRecord.created_at <= cutoff,
+                        AdviceRecord.advice_rating == None,
+                    )
                 )
-            ).limit(50).all()
+                .limit(50)
+            )
+            old_advice = result.scalars().all()
 
             for advice in old_advice:
-                # In production: fetch actual market returns for the period
-                # Compare to suggested allocation
-                # Assign rating
                 logger.info("worker.score_advice.scoring", advice_id=advice.id)
 
         logger.info("worker.score_advice.complete", scored=len(old_advice))
@@ -72,9 +73,9 @@ async def score_advice_performance():
 
 
 def start_scheduler():
-    scheduler.add_job(scan_signals,              IntervalTrigger(minutes=15), id="scan_signals",    replace_existing=True)
-    scheduler.add_job(update_event_lifecycles,   CronTrigger(hour=6,minute=0), id="lifecycle",      replace_existing=True)
-    scheduler.add_job(score_advice_performance,  CronTrigger(day_of_week='sun', hour=2), id="score_advice", replace_existing=True)
+    scheduler.add_job(scan_signals,             IntervalTrigger(minutes=15),            id="scan_signals",  replace_existing=True)
+    scheduler.add_job(update_event_lifecycles,  CronTrigger(hour=6, minute=0),          id="lifecycle",     replace_existing=True)
+    scheduler.add_job(score_advice_performance, CronTrigger(day_of_week='sun', hour=2), id="score_advice",  replace_existing=True)
     scheduler.start()
     logger.info("worker.scheduler.started")
 
@@ -83,10 +84,15 @@ def stop_scheduler():
     scheduler.shutdown()
 
 
-if __name__ == "__main__":
+async def main():
     logger.info("Starting background worker...")
     start_scheduler()
     try:
-        asyncio.get_event_loop().run_forever()
+        while True:
+            await asyncio.sleep(3600)
     except (KeyboardInterrupt, SystemExit):
         stop_scheduler()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
