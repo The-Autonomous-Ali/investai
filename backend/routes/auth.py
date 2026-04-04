@@ -11,20 +11,15 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
-from jose import jwt, JWTError
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import httpx
 import os
 
 from database.connection import get_db
 from models.models import User
-from utils.auth import get_current_user
+from utils.auth import get_current_user, create_access_token
 
 router = APIRouter()
-
-SECRET_KEY = os.getenv("SECRET_KEY", "fallback-dev-secret-change-in-prod")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_DAYS = 30
 
 
 # ── Request/Response schemas ─────────────────────────────────────────────────
@@ -39,31 +34,6 @@ class TokenResponse(BaseModel):
     user_id: str
     name: str | None
     email: str
-
-class RefreshRequest(BaseModel):
-    access_token: str
-
-
-# ── JWT helpers ──────────────────────────────────────────────────────────────
-
-def create_access_token(user_id: str, email: str) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS)
-    payload = {
-        "sub": user_id,
-        "email": email,
-        "exp": expire,
-    }
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
-
-
-def decode_token(token: str) -> dict:
-    try:
-        return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-        )
 
 
 # ── Google token verification ────────────────────────────────────────────────
