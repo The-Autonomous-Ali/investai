@@ -9,9 +9,8 @@ import {
 } from 'lucide-react'
 import axios from 'axios'
 
-// FIX: hardcode the correct IP directly — env variables don't work reliably
-// in Next.js Docker on Docker Machine
-const API_URL = 'http://192.168.99.100:8000'
+// Use environment variable for API URL, fallback to localhost
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 const COUNTRIES = [
   { code: 'IN', name: 'India', flag: '🇮🇳' },
