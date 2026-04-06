@@ -1,0 +1,360 @@
+# Historical global→India events used as ground truth for the backtest
+# harness. Every `event_name` MUST match an existing Neo4j Event.name in
+# infra/neo4j/seed.cypher — otherwise the KG traversal returns nothing
+# and the event contributes zero rows to kg_edge_stats.
+#
+# `date` convention: the first trading day on which the news was public.
+# For weekend or after-hours incidents, use the following Monday/trading
+# day. The backtest measures from this date forward; look-ahead is
+# prevented by `_next_trading_day`.
+version: 1
+events:
+  # ── Oil Price Spikes ─────────────────────────────────────────────────
+  - date: 2018-05-21
+    signal_type: commodity
+    event_name: "Oil Price Spike"
+    entities: ["Brent", "OPEC", "Iran sanctions"]
+    description: >
+      Brent crossed $80 for the first time since 2014 after the US
+      reimposed sanctions on Iran.
+    source_url: "https://www.reuters.com/article/oil-prices-idUSL3N1SS2CV"
+
+  - date: 2019-09-16
+    signal_type: commodity
+    event_name: "Oil Price Spike"
+    entities: ["Saudi Aramco", "Abqaiq", "drone strike"]
+    description: >
+      Drone strikes on Saudi Aramco's Abqaiq facility knocked out ~5% of
+      global crude supply. Brent jumped ~15% in a single session.
+    source_url: "https://www.reuters.com/article/us-saudi-aramco-oil/"
+
+  - date: 2022-03-07
+    signal_type: commodity
+    event_name: "Oil Price Spike"
+    entities: ["Brent", "Russia", "sanctions"]
+    description: >
+      Brent crossed $130 intraday as Western sanctions on Russian energy
+      tightened after the invasion of Ukraine.
+    source_url: "https://www.bbc.com/news/business-60637301"
+
+  - date: 2023-10-09
+    signal_type: commodity
+    event_name: "Oil Price Spike"
+    entities: ["Israel", "Hamas", "Middle East"]
+    description: >
+      Brent rose ~4% at the open after Hamas attacks on Israel raised
+      Middle East supply-risk premium.
+    source_url: "https://www.reuters.com/markets/commodities/"
+
+  # ── Oil Price Crashes ────────────────────────────────────────────────
+  - date: 2014-11-28
+    signal_type: commodity
+    event_name: "Oil Price Crash"
+    entities: ["OPEC", "Vienna meeting", "US shale"]
+    description: >
+      OPEC declined to cut production at its Vienna meeting. Brent fell
+      ~10% that session and continued down through 2015–16.
+    source_url: "https://www.reuters.com/article/us-opec-meeting/"
+
+  - date: 2020-03-09
+    signal_type: commodity
+    event_name: "Oil Price Crash"
+    entities: ["Saudi Arabia", "Russia", "price war", "COVID"]
+    description: >
+      Saudi–Russia price war combined with COVID demand collapse drove
+      Brent down ~25% in a single session.
+    source_url: "https://www.bbc.com/news/business-51791336"
+
+  - date: 2020-04-20
+    signal_type: commodity
+    event_name: "Oil Price Crash"
+    entities: ["WTI", "Cushing", "storage"]
+    description: >
+      WTI futures traded negative for the first time in history as
+      Cushing storage neared capacity.
+    source_url: "https://www.reuters.com/article/us-global-oil/"
+
+  # ── Middle East Conflict ─────────────────────────────────────────────
+  - date: 2020-01-03
+    signal_type: geopolitical
+    event_name: "Middle East Conflict"
+    entities: ["Qasem Soleimani", "Iran", "US strike"]
+    description: >
+      US strike killed Iranian general Soleimani in Baghdad; Iran retaliated
+      days later. Brent jumped ~4% and Indian markets opened gap down.
+    source_url: "https://www.bbc.com/news/world-middle-east-50979463"
+
+  - date: 2024-04-15
+    signal_type: geopolitical
+    event_name: "Middle East Conflict"
+    entities: ["Iran", "Israel", "direct strike"]
+    description: >
+      Iran launched direct missile/drone strike on Israel; first open
+      state-on-state attack in the current escalation cycle.
+    source_url: "https://www.reuters.com/world/middle-east/"
+
+  # ── US Fed Rate Hikes ────────────────────────────────────────────────
+  - date: 2015-12-17
+    signal_type: monetary
+    event_name: "US Fed Rate Hike"
+    entities: ["FOMC", "Yellen", "liftoff"]
+    description: >
+      First Fed rate hike since 2006 — end of the zero-rate era.
+    source_url: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20151216a.htm"
+
+  - date: 2018-12-20
+    signal_type: monetary
+    event_name: "US Fed Rate Hike"
+    entities: ["FOMC", "Powell"]
+    description: >
+      Fed hiked 25bp in December 2018 despite market pushback; equities
+      sold off globally into year-end.
+    source_url: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20181219a.htm"
+
+  - date: 2022-03-17
+    signal_type: monetary
+    event_name: "US Fed Rate Hike"
+    entities: ["FOMC", "inflation", "liftoff 2022"]
+    description: >
+      First hike of the 2022 tightening cycle. 25bp. DXY surged into the
+      next several months.
+    source_url: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20220316a.htm"
+
+  - date: 2022-06-16
+    signal_type: monetary
+    event_name: "US Fed Rate Hike"
+    entities: ["FOMC", "75bp"]
+    description: >
+      First 75bp hike since 1994. Global risk-off; INR hit record low.
+    source_url: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20220615a.htm"
+
+  - date: 2023-05-04
+    signal_type: monetary
+    event_name: "US Fed Rate Hike"
+    entities: ["FOMC", "terminal rate"]
+    description: >
+      Terminal 25bp hike of the 2022–23 cycle to 5.00–5.25%.
+    source_url: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20230503a.htm"
+
+  # ── RBI Policy ───────────────────────────────────────────────────────
+  - date: 2018-06-07
+    signal_type: monetary
+    event_name: "RBI Rate Hike"
+    entities: ["RBI", "Urjit Patel", "repo"]
+    description: >
+      First RBI hike of the 2018 cycle; 25bp to 6.25%.
+    source_url: "https://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx?prid=44190"
+
+  - date: 2022-05-05
+    signal_type: monetary
+    event_name: "RBI Rate Hike"
+    entities: ["RBI", "Das", "surprise hike"]
+    description: >
+      Off-cycle 40bp RBI hike — first of the 2022 tightening cycle.
+    source_url: "https://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx?prid=53635"
+
+  - date: 2022-06-08
+    signal_type: monetary
+    event_name: "RBI Rate Hike"
+    entities: ["RBI", "MPC"]
+    description: >
+      50bp RBI hike at the regular MPC meeting following the May surprise.
+    source_url: "https://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx?prid=53793"
+
+  - date: 2019-02-07
+    signal_type: monetary
+    event_name: "RBI Rate Cut"
+    entities: ["RBI", "Das", "surprise cut"]
+    description: >
+      RBI cut repo 25bp to 6.25% in a 4-2 vote under the new governor.
+    source_url: "https://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx?prid=46282"
+
+  - date: 2020-03-27
+    signal_type: monetary
+    event_name: "RBI Rate Cut"
+    entities: ["RBI", "COVID", "emergency"]
+    description: >
+      Emergency 75bp RBI cut during COVID lockdown — repo to 4.40%.
+    source_url: "https://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx?prid=49582"
+
+  - date: 2020-05-22
+    signal_type: monetary
+    event_name: "RBI Rate Cut"
+    entities: ["RBI", "COVID"]
+    description: >
+      Further 40bp RBI cut to 4.00% as COVID stress deepened.
+    source_url: "https://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx?prid=49841"
+
+  - date: 2023-04-06
+    signal_type: monetary
+    event_name: "RBI Rate Hold"
+    entities: ["RBI", "MPC", "pause"]
+    description: >
+      RBI unexpectedly paused after 250bp of hikes, repo at 6.50%.
+    source_url: "https://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx?prid=55503"
+
+  # ── INR Depreciation / DXY Strengthening ─────────────────────────────
+  - date: 2018-10-05
+    signal_type: currency
+    event_name: "INR Depreciation"
+    entities: ["INR", "USD", "CAD"]
+    description: >
+      INR hit 74/USD for the first time on widening CAD and oil prices.
+    source_url: "https://www.reuters.com/article/india-rupee/"
+
+  - date: 2022-07-14
+    signal_type: currency
+    event_name: "INR Depreciation"
+    entities: ["INR", "USD", "DXY"]
+    description: >
+      INR first crossed 80/USD as DXY topped 108.
+    source_url: "https://www.reuters.com/markets/currencies/"
+
+  - date: 2022-09-23
+    signal_type: currency
+    event_name: "DXY Strengthening"
+    entities: ["DXY", "Fed", "rate differential"]
+    description: >
+      DXY hit 113, a 20-year high, following aggressive Fed guidance.
+    source_url: "https://www.reuters.com/markets/currencies/"
+
+  - date: 2023-10-26
+    signal_type: currency
+    event_name: "INR Depreciation"
+    entities: ["INR", "RBI intervention"]
+    description: >
+      INR touched record 83.29/USD; RBI intervened but let the floor drift.
+    source_url: "https://www.reuters.com/markets/currencies/"
+
+  # ── FII Selling / Global Risk Off ────────────────────────────────────
+  - date: 2020-03-12
+    signal_type: geopolitical
+    event_name: "Global Risk Off"
+    entities: ["COVID-19", "WHO", "pandemic"]
+    description: >
+      WHO declared COVID a pandemic. Indian markets hit circuit breakers
+      the next session; FII outflows reached record levels.
+    source_url: "https://www.who.int/director-general/speeches/detail/who-director-general-s-opening-remarks-at-the-media-briefing-on-covid-19---11-march-2020"
+
+  - date: 2022-02-24
+    signal_type: geopolitical
+    event_name: "Global Risk Off"
+    entities: ["Russia", "Ukraine", "NATO"]
+    description: >
+      Russia invaded Ukraine; global risk-off; FIIs sold aggressively.
+    source_url: "https://www.bbc.com/news/world-europe-60503037"
+
+  - date: 2023-03-13
+    signal_type: geopolitical
+    event_name: "Global Risk Off"
+    entities: ["SVB", "Signature Bank", "regional banks"]
+    description: >
+      Silicon Valley Bank collapse followed by Signature; US regional
+      bank stress spilled into global risk-off.
+    source_url: "https://www.reuters.com/business/finance/svb-financial/"
+
+  - date: 2015-08-24
+    signal_type: geopolitical
+    event_name: "Global Risk Off"
+    entities: ["China", "yuan devaluation", "Black Monday"]
+    description: >
+      China yuan devaluation and Shanghai Composite crash triggered
+      global risk-off; Sensex fell 5.9% intraday.
+    source_url: "https://www.reuters.com/article/us-markets-global/"
+
+  - date: 2018-10-11
+    signal_type: currency
+    event_name: "FII Selling"
+    entities: ["FII", "US yields", "oil"]
+    description: >
+      Heavy FII selling as US 10y yields broke 3.2% and INR weakened.
+    source_url: "https://www.reuters.com/article/india-stocks/"
+
+  # ── India Macro ──────────────────────────────────────────────────────
+  - date: 2016-11-09
+    signal_type: fiscal
+    event_name: "India Election"
+    entities: ["Modi", "demonetisation", "Trump"]
+    description: >
+      Post-Trump-election global volatility combined with next-day
+      India demonetisation announcement.
+    source_url: "https://www.bbc.com/news/world-asia-india-37974423"
+
+  - date: 2019-05-23
+    signal_type: fiscal
+    event_name: "India Election"
+    entities: ["BJP", "Modi", "landslide"]
+    description: >
+      BJP won 303 Lok Sabha seats; markets rallied on policy continuity.
+    source_url: "https://www.bbc.com/news/world-asia-india-48347081"
+
+  - date: 2024-06-04
+    signal_type: fiscal
+    event_name: "India Election"
+    entities: ["BJP", "NDA", "coalition"]
+    description: >
+      Exit-poll rally reversed as BJP fell short of majority; Nifty fell
+      ~6% intraday before partially recovering.
+    source_url: "https://www.reuters.com/world/india/"
+
+  - date: 2019-08-30
+    signal_type: fiscal
+    event_name: "India GDP Beat"
+    entities: ["MoSPI", "Q1 FY20", "slowdown surprise"]
+    description: >
+      Q1 FY20 GDP print of 5.0% was a six-year low and triggered stimulus
+      response; included here as a GDP surprise (in this case, downside).
+    source_url: "https://www.mospi.gov.in/"
+
+  - date: 2023-05-31
+    signal_type: fiscal
+    event_name: "India GDP Beat"
+    entities: ["MoSPI", "Q4 FY23"]
+    description: >
+      Q4 FY23 GDP at 6.1% beat the 5.0% consensus meaningfully.
+    source_url: "https://www.mospi.gov.in/"
+
+  - date: 2022-04-12
+    signal_type: monetary
+    event_name: "India Inflation Rise"
+    entities: ["CPI", "8-year high"]
+    description: >
+      March 2022 CPI print at 6.95% — highest since late 2014.
+    source_url: "https://www.mospi.gov.in/"
+
+  # ── Monsoon ──────────────────────────────────────────────────────────
+  - date: 2015-10-01
+    signal_type: natural_disaster
+    event_name: "Monsoon Failure"
+    entities: ["IMD", "El Nino", "rainfall deficit"]
+    description: >
+      IMD confirmed 2015 monsoon ended 14% below normal — a second
+      consecutive drought year.
+    source_url: "https://mausam.imd.gov.in/"
+
+  - date: 2023-09-30
+    signal_type: natural_disaster
+    event_name: "Monsoon Failure"
+    entities: ["IMD", "El Nino", "2023 monsoon"]
+    description: >
+      2023 SW monsoon ended ~94% of LPA — driest since 2018, El Niño year.
+    source_url: "https://mausam.imd.gov.in/"
+
+  # ── Global Recession Risk ────────────────────────────────────────────
+  - date: 2022-07-13
+    signal_type: geopolitical
+    event_name: "Global Recession Risk"
+    entities: ["US CPI", "9.1%", "yield curve inversion"]
+    description: >
+      US CPI 9.1% + 2s10s inversion deepened; global recession narrative
+      went mainstream.
+    source_url: "https://www.bls.gov/"
+
+  - date: 2019-08-14
+    signal_type: geopolitical
+    event_name: "Global Recession Risk"
+    entities: ["yield curve", "2s10s inversion"]
+    description: >
+      US 2s10s inverted for the first time since 2007 — equities fell
+      ~3% globally that session.
+    source_url: "https://www.reuters.com/article/us-usa-bonds/"

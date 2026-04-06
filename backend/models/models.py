@@ -2,8 +2,9 @@
 SQLAlchemy database models for InvestAI
 """
 from sqlalchemy import (
-    Column, String, Integer, Float, Boolean, DateTime, 
-    Text, JSON, ForeignKey, Enum as SAEnum, Index
+    Column, String, Integer, Float, Boolean, DateTime, Date,
+    Text, JSON, ForeignKey, Enum as SAEnum, Index, Numeric,
+    BigInteger, UniqueConstraint
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
@@ -256,6 +257,63 @@ class UserAlert(Base):
     created_at  = Column(DateTime, server_default=func.now())
 
     user        = relationship("User", back_populates="alerts")
+
+
+class SectorPrice(Base):
+    """Daily historical prices for sector indices and global context tickers.
+
+    Used by the offline backtest harness (backend/evaluation/) to measure
+    actual sector returns against KG-predicted directions. Not used by the
+    live request path.
+    """
+    __tablename__ = "sector_prices"
+
+    id          = Column(BigInteger, primary_key=True, autoincrement=True)
+    symbol      = Column(String(32), nullable=False)   # e.g. NIFTY_IT, BRENT
+    date        = Column(Date, nullable=False)
+    close       = Column(Numeric(14, 4), nullable=False)
+    returns_1d  = Column(Numeric(10, 6))
+    returns_5d  = Column(Numeric(10, 6))
+    returns_30d = Column(Numeric(10, 6))
+    source      = Column(String(16), nullable=False, server_default="yfinance")
+    ingested_at = Column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("symbol", "date", name="uq_sector_prices_symbol_date"),
+        Index("ix_sector_prices_symbol_date", "symbol", "date"),
+    )
+
+
+class KGEdgeStats(Base):
+    """Calibrated edge statistics from the backtest harness.
+
+    One row per (event_name, sector, lag_days). `measured_strength` is the
+    empirically observed hit rate (if sign agrees with predicted direction)
+    derived from historical price data.
+    """
+    __tablename__ = "kg_edge_stats"
+
+    id                  = Column(BigInteger, primary_key=True, autoincrement=True)
+    event_type          = Column(String(32), nullable=False)
+    event_name          = Column(String(128), nullable=False)
+    sector              = Column(String(64), nullable=False)
+    lag_days            = Column(Integer, nullable=False)
+    sample_size         = Column(Integer, nullable=False)
+    hits                = Column(Integer, nullable=False)
+    hit_rate            = Column(Numeric(6, 4), nullable=False)
+    avg_alpha           = Column(Numeric(10, 6), nullable=False)
+    alpha_stddev        = Column(Numeric(10, 6), nullable=False)
+    ci95_low            = Column(Numeric(10, 6), nullable=False)
+    ci95_high           = Column(Numeric(10, 6), nullable=False)
+    measured_strength   = Column(Numeric(5, 4), nullable=False)
+    predicted_direction = Column(String(8), nullable=False)
+    calibrated_at       = Column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("event_name", "sector", "lag_days", name="uq_kg_edge_stats_event_sector_lag"),
+        Index("ix_kg_edge_stats_event_type", "event_type"),
+        Index("ix_kg_edge_stats_sector", "sector"),
+    )
 
 
 class Subscription(Base):
