@@ -1,22 +1,21 @@
 {
   "name": "InvestAI Dev",
-  "dockerComposeFile": "../docker-compose.yml",
-  "service": "backend",
-  "workspaceFolder": "/app",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/node:1": { "version": "18" }
+  },
 
   "forwardPorts": [3000, 8000, 5432, 6379, 7474, 7687],
+
+  "postCreateCommand": "pip install -r backend/requirements.txt && cd frontend && npm install",
 
   "customizations": {
     "vscode": {
       "extensions": [
-        "ms-python.python",
-        "ms-python.vscode-pylance"
-      ],
-      "settings": {
-        "python.defaultInterpreterPath": "/usr/local/bin/python"
-      }
+        "ms-python.python"
+      ]
     }
-  },
-
-  "postCreateCommand": "pip install -r requirements.txt"
+  }
 }
