@@ -295,6 +295,34 @@ class OrchestratorAgent:
                 "critic_verdict":  critic_result["verdict"],
             })
 
+            # ── Step 12: Snapshot driving signals for monitoring ───────────────
+            try:
+                from services.signal_monitor import create_signal_links_for_advice
+                from models.models import AdviceRecord
+                from sqlalchemy import select, desc
+
+                # Get the just-created advice record
+                advice_result = await self.db.execute(
+                    select(AdviceRecord)
+                    .where(AdviceRecord.user_id == user_id)
+                    .order_by(desc(AdviceRecord.created_at))
+                    .limit(1)
+                )
+                latest_advice = advice_result.scalar_one_or_none()
+
+                if latest_advice:
+                    driving_signals = state["agent_outputs"].get(
+                        "signal_watcher", {}
+                    ).get("signals", [])
+                    await create_signal_links_for_advice(
+                        self.db, latest_advice.id, driving_signals
+                    )
+                    await self.db.commit()
+                    log.info("orchestrator.signal_links_created",
+                             count=len(driving_signals))
+            except Exception as e:
+                log.warning("orchestrator.signal_links_failed", error=str(e))
+
             elapsed = round(time.time() - start_time, 2)
             log.info("orchestrator.complete", elapsed_s=elapsed)
 
@@ -470,11 +498,11 @@ class OrchestratorAgent:
 
         return {
             "allocation":                  portfolio.get("allocation", {}),
-            "sectors_to_buy":              portfolio.get("sectors_to_buy", []),
-            "sectors_to_avoid":            portfolio.get("sectors_to_avoid", []),
+            "sectors_to_buy":              portfolio.get("sectors_to_research", portfolio.get("sectors_to_buy", [])),
+            "sectors_to_avoid":            portfolio.get("sectors_showing_risk", portfolio.get("sectors_to_avoid", [])),
             "rebalancing_triggers":        portfolio.get("rebalancing_triggers", []),
             "narrative":                   portfolio.get("narrative", ""),
-            "confidence_score":            portfolio.get("confidence_score", 0.5),
+            "confidence_score":            portfolio.get("analysis_confidence", portfolio.get("confidence_score", 0.5)),
 
             "tax_optimizations":           tax.get("optimizations", []),
             "post_tax_return_estimate":    tax.get("post_tax_return_estimate"),
@@ -506,8 +534,10 @@ class OrchestratorAgent:
             "plain_language":              None,
             
             "disclaimer": (
-                "This analysis is for educational purposes only and does not constitute "
-                "SEBI-registered investment advice."
+                "This analysis is for educational and informational purposes only. "
+                "It does not constitute investment advice under SEBI (Investment Advisers) "
+                "Regulations, 2013. Please consult a SEBI-registered investment advisor "
+                "before making any investment decisions."
             ),
         }
 

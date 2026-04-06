@@ -316,6 +316,40 @@ class KGEdgeStats(Base):
     )
 
 
+class AdviceSignalLink(Base):
+    """Tracks which signals drove an advice record and whether those signals
+    have since changed.  The signal_monitor worker compares the snapshot
+    captured at advice time against the current signal state and updates
+    ``current_status`` accordingly.
+    """
+    __tablename__ = "advice_signal_links"
+
+    id                  = Column(String, primary_key=True, default=gen_uuid)
+    advice_id           = Column(String, ForeignKey("advice_records.id"), nullable=False)
+    signal_id           = Column(String, ForeignKey("signals.id"), nullable=True)
+
+    # Snapshot at advice time (so we can detect changes later)
+    signal_title        = Column(String, nullable=False)
+    signal_type         = Column(String)
+    importance_at_advice = Column(Float)           # importance_score when advice was given
+    stage_at_advice     = Column(String)            # EventStage value when advice was given
+    sectors_affected    = Column(JSON, default=dict) # sectors_affected snapshot
+
+    # Current tracking
+    current_status      = Column(String, default="active")  # active, weakened, reversed, resolved
+    change_detected_at  = Column(DateTime)
+    change_description  = Column(Text)
+
+    created_at          = Column(DateTime, server_default=func.now())
+    updated_at          = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index("ix_advice_signal_link_advice", "advice_id"),
+        Index("ix_advice_signal_link_signal", "signal_id"),
+        Index("ix_advice_signal_link_status", "current_status"),
+    )
+
+
 class Subscription(Base):
     __tablename__ = "subscriptions"
 

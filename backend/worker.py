@@ -33,6 +33,25 @@ async def scan_signals():
         logger.error("worker.scan_signals.error", error=str(e))
 
 
+async def monitor_signal_changes():
+    """Check if signals that drove previous advice have changed.
+
+    Runs every 30 minutes.  When a change is detected, creates a
+    UserAlert so the user knows their previous analysis may be outdated.
+    """
+    logger.info("worker.signal_monitor.start")
+    try:
+        from database.connection import AsyncSessionLocal
+        from services.signal_monitor import check_signal_changes
+
+        async with AsyncSessionLocal() as db:
+            alerts_created = await check_signal_changes(db)
+            logger.info("worker.signal_monitor.complete",
+                        alerts_created=alerts_created)
+    except Exception as e:
+        logger.error("worker.signal_monitor.error", error=str(e))
+
+
 async def update_event_lifecycles():
     """Daily update of event lifecycle stages."""
     logger.info("worker.lifecycle_update.start")
@@ -73,11 +92,12 @@ async def score_advice_performance():
 
 
 def start_scheduler():
-    scheduler.add_job(scan_signals,             IntervalTrigger(minutes=15),            id="scan_signals",  replace_existing=True)
-    scheduler.add_job(update_event_lifecycles,  CronTrigger(hour=6, minute=0),          id="lifecycle",     replace_existing=True)
-    scheduler.add_job(score_advice_performance, CronTrigger(day_of_week='sun', hour=2), id="score_advice",  replace_existing=True)
+    scheduler.add_job(scan_signals,             IntervalTrigger(minutes=15),            id="scan_signals",    replace_existing=True)
+    scheduler.add_job(monitor_signal_changes,   IntervalTrigger(minutes=30),            id="signal_monitor",  replace_existing=True)
+    scheduler.add_job(update_event_lifecycles,  CronTrigger(hour=6, minute=0),          id="lifecycle",       replace_existing=True)
+    scheduler.add_job(score_advice_performance, CronTrigger(day_of_week='sun', hour=2), id="score_advice",    replace_existing=True)
     scheduler.start()
-    logger.info("worker.scheduler.started")
+    logger.info("worker.scheduler.started", jobs=["scan_signals(15m)", "signal_monitor(30m)", "lifecycle(6am)", "score_advice(sun)"])
 
 
 def stop_scheduler():

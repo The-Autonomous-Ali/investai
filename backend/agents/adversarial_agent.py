@@ -1,6 +1,8 @@
 """
-Adversarial Agent — The Bull vs. Bear Debate Protocol.
-Ensures no stock enters the portfolio without surviving a stress test.
+Adversarial Agent — The Bull vs. Bear Analysis Protocol.
+Provides balanced analysis of both sides for every company, so the user
+can weigh the arguments and make their own decision.
+SEBI Option 1: No verdicts, no allocation recommendations.
 """
 import json
 import structlog
@@ -8,26 +10,47 @@ from utils.llm_client import call_llm
 
 logger = structlog.get_logger()
 
-ADVERSARIAL_PROMPT = """You are an Institutional Investment Committee consisting of a Bull (optimist) and a Bear (pessimist).
-You are evaluating a proposed stock pick for an Indian retail investor.
+ADVERSARIAL_PROMPT = """You are an Institutional Research Team presenting BOTH sides of the argument for a stock.
+You are NOT making a buy/sell decision. You are giving the investor balanced analysis so THEY can decide.
 
 COMPANY: {company_name} ({symbol})
-PROPOSED ALLOCATION: {allocation}%
 MACRO ENVIRONMENT: {macro_context}
+LIVE DATA (if available): {live_data}
 
-Step 1 (The Bear): Attack this stock pick. Focus on valuation, macro headwinds, sector risks, or corporate governance. Be brutal but factual.
-Step 2 (The Bull): Defend the stock. Focus on growth catalysts, undervalued assets, or strong technicals.
-Step 3 (The Verdict): Based purely on risk/reward, decide if the stock stays in the portfolio, gets its allocation reduced, or is rejected entirely.
+Step 1 (The Bear Case): Present the strongest factual argument AGAINST this company right now.
+Focus on: valuation concerns, macro headwinds, sector risks, corporate governance, competitive threats.
+Be brutally honest but factual — cite data where available.
+
+Step 2 (The Bull Case): Present the strongest factual argument FOR this company right now.
+Focus on: growth catalysts, undervalued aspects, strong fundamentals, sector tailwinds, management quality.
+Be specific and cite data where available.
+
+Step 3 (Key Debate Point): What is the SINGLE most important question the investor should answer
+before making any decision about this stock?
+
+IMPORTANT: Do NOT provide a verdict (buy/sell/hold). Do NOT recommend an allocation percentage.
+Your job is to present both sides clearly so the investor can make their own informed decision.
 
 Return ONLY valid JSON:
 {{
-  "bear_thesis": "...",
-  "bull_thesis": "...",
-  "verdict": "APPROVE | REDUCE | REJECT",
-  "recommended_allocation": <number>,
-  "reasoning": "..."
+  "bull_case": {{
+    "thesis": "2-3 sentence bull thesis",
+    "supporting_evidence": ["Evidence point 1", "Evidence point 2"],
+    "catalysts": ["Near-term catalyst 1", "Near-term catalyst 2"],
+    "strength": 7
+  }},
+  "bear_case": {{
+    "thesis": "2-3 sentence bear thesis",
+    "supporting_evidence": ["Evidence point 1", "Evidence point 2"],
+    "risks": ["Key risk 1", "Key risk 2"],
+    "strength": 5
+  }},
+  "key_debate_point": "The single most important question the investor should answer",
+  "data_gaps": ["What information is missing that would strengthen the analysis"],
+  "factors_to_monitor": ["What the investor should watch going forward"]
 }}
 """
+
 
 class AdversarialAgent:
     def __init__(self):
@@ -35,31 +58,33 @@ class AdversarialAgent:
 
     async def debate_picks(self, company_picks: list, macro_context: dict) -> list:
         log = logger.bind(picks_count=len(company_picks))
-        log.info("adversarial_debate.start")
-        
-        surviving_picks = []
-        
+        log.info("adversarial_analysis.start")
+
+        analyzed_picks = []
+
         for pick in company_picks:
             symbol = pick.get("nse_symbol")
-            
+
             prompt = ADVERSARIAL_PROMPT.format(
                 company_name=pick.get("name"),
                 symbol=symbol,
-                allocation=pick.get("proposed_weight", 5), # Assume 5% default
-                macro_context=json.dumps(macro_context)
+                macro_context=json.dumps(macro_context)[:1000],
+                live_data=json.dumps(pick.get("live_data") or pick.get("data_highlights") or {})[:500],
             )
-            
-            # Using a fast, reasoning-heavy model like Llama 3 or DeepSeek
-            response = await call_llm(prompt, agent_name="adversarial_agent")
-            debate_result = json.loads(response)
-            
-            pick["debate"] = debate_result
-            
-            if debate_result["verdict"] in ["APPROVE", "REDUCE"]:
-                pick["final_weight"] = debate_result["recommended_allocation"]
-                surviving_picks.append(pick)
-            else:
-                log.warning(f"Stock {symbol} rejected by Bear Agent.")
-                
-        log.info("adversarial_debate.complete", survived=len(surviving_picks))
-        return surviving_picks
+
+            try:
+                response = await call_llm(prompt, agent_name="adversarial_agent")
+                debate_result = json.loads(response)
+                pick["debate"] = debate_result
+            except Exception as e:
+                log.warning("adversarial_analysis.failed", symbol=symbol, error=str(e))
+                pick["debate"] = {
+                    "bull_case": {"thesis": "Analysis unavailable", "strength": 0},
+                    "bear_case": {"thesis": "Analysis unavailable", "strength": 0},
+                    "key_debate_point": "Unable to generate analysis for this company",
+                }
+
+            analyzed_picks.append(pick)
+
+        log.info("adversarial_analysis.complete", analyzed=len(analyzed_picks))
+        return analyzed_picks
