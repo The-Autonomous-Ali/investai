@@ -116,6 +116,34 @@ async def get_signal_timeline(
     }
 
 
+@router.get("/{signal_id}/causal-chain")
+async def get_signal_causal_chain(
+    signal_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Get the full root cause -> impact -> resolution chain for a signal.
+
+    For power users who want to understand exactly WHY things are happening.
+    """
+    result = await db.execute(select(Signal).where(Signal.id == signal_id))
+    signal = result.scalar_one_or_none()
+    if not signal:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Signal not found")
+
+    return {
+        "signal_id": signal.id,
+        "title": signal.title,
+        "root_cause_chain": signal.root_cause_chain or [],
+        "resolution_chain": signal.resolution_chain or [],
+        "full_causal_chain": signal.full_causal_chain or {},
+        "chain_effects": signal.chain_effects or [],
+        "resolution_conditions": signal.resolution_conditions or [],
+        "detected_at": signal.detected_at.isoformat() if signal.detected_at else None,
+    }
+
+
 def _serialize_signal(signal: Signal, full: bool = False) -> dict:
     """Convert Signal ORM object to API response dict."""
     data = {
@@ -140,6 +168,7 @@ def _serialize_signal(signal: Signal, full: bool = False) -> dict:
             "entities_mentioned": signal.entities_mentioned or [],
             "india_impact_analysis": signal.india_impact_analysis,
             "chain_effects": signal.chain_effects or [],
+            "root_cause_chain": signal.root_cause_chain or [],
             "lifecycle_data": signal.lifecycle_data or {},
             "resolution_conditions": signal.resolution_conditions or [],
             "probability_scenarios": signal.probability_scenarios or {},

@@ -153,6 +153,24 @@ class OrchestratorAgent:
             # ── Step 3: Execute all agents in pipeline ──────────────────────
             await self._execute_task_plan(state, task_plan)
 
+            # ── Step 3.5: Assemble causal chain from available agent outputs ──
+            try:
+                signals_list = state["agent_outputs"].get("signal_watcher", {}).get("signals", [])
+                research_out = state["agent_outputs"].get("research_agent", {})
+                temporal_out = state["agent_outputs"].get("temporal_agent", {})
+                # Use first signal as representative for root cause chain
+                signal_data = signals_list[0] if signals_list else {}
+                causal_chain = ResearchAgent.assemble_full_chain(
+                    signal_data, research_out, temporal_out
+                )
+                state["agent_outputs"]["causal_chain"] = causal_chain
+                log.info("orchestrator.causal_chain_assembled",
+                         root_causes=len(causal_chain.get("root_causes", [])),
+                         forward_steps=len(causal_chain.get("forward_chain", [])))
+            except Exception as e:
+                log.warning("orchestrator.causal_chain_failed", error=str(e))
+                state["agent_outputs"]["causal_chain"] = {}
+
             # ── Step 4: Watchdog conflict check ───────────────────────────────
             conflicts = await self.watchdog.check(state["agent_outputs"])
             state["conflicts"] = conflicts
@@ -279,6 +297,7 @@ class OrchestratorAgent:
                 plain_summary = await self.plain_formatter.format_full_portfolio(
                     full_recommendation=final,
                     amount=amount,
+                    causal_chain=state["agent_outputs"].get("causal_chain"),
                 )
                 final["plain_language"] = plain_summary
             except Exception as e:
@@ -485,16 +504,17 @@ class OrchestratorAgent:
         critic_result: dict,
         technical_results: list,
     ) -> dict:
-        portfolio = state["agent_outputs"].get("portfolio_agent", {})
-        tax       = state["agent_outputs"].get("tax_agent", {})
-        temporal  = state["agent_outputs"].get("temporal_agent", {})
-        research  = state["agent_outputs"].get("research_agent", {})
-        patterns  = state["agent_outputs"].get("pattern_matcher", {})
-        macro     = state["agent_outputs"].get("global_macro_agent", {})
-        sentiment = state["agent_outputs"].get("sentiment_aggregator", {})
-        signals   = state["agent_outputs"].get("signal_watcher", {}).get("signals", [])
-        intel     = state["agent_outputs"].get("market_intelligence", {})
-        quant     = state["agent_outputs"].get("quant_risk", {})
+        portfolio     = state["agent_outputs"].get("portfolio_agent", {})
+        tax           = state["agent_outputs"].get("tax_agent", {})
+        temporal      = state["agent_outputs"].get("temporal_agent", {})
+        research      = state["agent_outputs"].get("research_agent", {})
+        patterns      = state["agent_outputs"].get("pattern_matcher", {})
+        macro         = state["agent_outputs"].get("global_macro_agent", {})
+        sentiment     = state["agent_outputs"].get("sentiment_aggregator", {})
+        signals       = state["agent_outputs"].get("signal_watcher", {}).get("signals", [])
+        intel         = state["agent_outputs"].get("market_intelligence", {})
+        quant         = state["agent_outputs"].get("quant_risk", {})
+        causal_chain  = state["agent_outputs"].get("causal_chain", {})
 
         return {
             "allocation":                  portfolio.get("allocation", {}),
@@ -508,6 +528,8 @@ class OrchestratorAgent:
             "post_tax_return_estimate":    tax.get("post_tax_return_estimate"),
 
             "reasoning_chain":             research.get("impact_chain", []),
+            "causal_chain":                causal_chain,
+            "root_cause_narrative":        research.get("root_cause_narrative", causal_chain.get("root_cause_narrative", "")),
             "event_timelines":             temporal.get("timelines", []),
             "historical_precedents":       patterns.get("best_analogues", []),
             "signals_used":                [s.get("title") for s in signals[:5]],

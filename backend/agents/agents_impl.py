@@ -323,12 +323,20 @@ Return ONLY valid JSON:
         "best_case": {{"desc": "Ceasefire in 3 weeks", "probability": 0.30, "timeline_days": 21}},
         "base_case": {{"desc": "Drags 2-3 months", "probability": 0.50, "timeline_days": 75}},
         "worst_case": {{"desc": "Hormuz blocked", "probability": 0.20, "timeline_days": 180}}
+      }},
+      "resolution_cause": {{
+        "what_resolved_it": "Specific public event that caused de-escalation (empty string if not yet resolved)",
+        "source": "Who reported it",
+        "date": "When it happened",
+        "confidence": 0.0-1.0
       }}
     }}
   ],
   "recommended_review_date": "YYYY-MM-DD",
   "overall_market_phase": "cautious|neutral|optimistic"
 }}
+
+NOTE: Only populate resolution_cause with real data when lifecycle_stage is "de_escalating", "fading", or "resolved". For ongoing events, set what_resolved_it to an empty string.
 """
 
 

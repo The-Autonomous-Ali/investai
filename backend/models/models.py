@@ -173,6 +173,11 @@ class Signal(Base):
     corroboration_boost = Column(Float, default=0.0)
     final_weight        = Column(Float)
 
+    # Root cause chain (populated by signal_watcher + graphrag_enricher)
+    root_cause_chain    = Column(JSON, default=list)   # [{event, source, date, source_url, role}]
+    resolution_chain    = Column(JSON, default=list)   # [{event, source, date, source_url, role}]
+    full_causal_chain   = Column(JSON, default=dict)   # {root_causes, forward_chain, resolution_chain, assembled_at}
+
     # Deduplication
     content_hash        = Column(String, index=True)
 

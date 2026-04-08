@@ -10,7 +10,7 @@ import structlog
 from sqlalchemy import select
 
 from utils.llm_client import call_llm
-from agents.kg_traversal import query_knowledge_graph
+from agents.kg_traversal import query_knowledge_graph, query_root_cause_chain
 
 logger = structlog.get_logger()
 
@@ -26,6 +26,9 @@ KNOWLEDGE GRAPH CONNECTIONS (what these signals connect to):
 
 CURRENT {country} MACRO STATE:
 {macro_state}
+
+ROOT CAUSE CONTEXT (what triggered these events — use this to explain WHY):
+{root_cause_context}
 
 AGENT ACCURACY NOTE: {accuracy_note}
 
@@ -51,6 +54,7 @@ Analyze and return ONLY valid JSON:
   "currency_impact": "analysis of local currency impact",
   "inflation_impact": "analysis of inflation impact",
   "time_horizon": "short_term|medium_term|long_term",
+  "root_cause_narrative": "1-2 sentences explaining the root cause behind the top signal — what specific event/decision triggered this chain",
   "key_assumptions": ["assumption 1", "assumption 2"],
   "confidence_score": 0.0-1.0,
   "data_quality": "high|medium|low"
@@ -77,12 +81,16 @@ class ResearchAgent:
             if s.get("signal_type"):
                 signal_types.append(s["signal_type"])
 
+        # Extract event names for root cause lookup
+        event_names = list(set(entities + [s.get("title", "") for s in signals[:5]]))
+
         kg_connections = await self._query_knowledge_graph(entities, signal_types, country)
+        root_cause_data = await query_root_cause_chain(self.neo4j, event_names, signal_types, country)
         macro_state    = await self._get_macro_state(country)
         accuracy_note  = await self._get_accuracy_note(signal_types)
 
         result = await self._run_analysis(
-            signals, kg_connections, macro_state, accuracy_note, country
+            signals, kg_connections, root_cause_data, macro_state, accuracy_note, country
         )
 
         log.info("research_agent.complete", confidence=result.get("confidence_score"))
@@ -156,7 +164,7 @@ class ResearchAgent:
         except Exception:
             return "No calibration data available yet."
 
-    async def _run_analysis(self, signals, kg_connections, macro_state, accuracy_note, country: str) -> dict:
+    async def _run_analysis(self, signals, kg_connections, root_cause_data, macro_state, accuracy_note, country: str) -> dict:
         signals_text = json.dumps([
             {k: v for k, v in s.items() if k in [
                 "title", "signal_type", "urgency", "importance_score",
@@ -165,9 +173,24 @@ class ResearchAgent:
             for s in signals[:5]
         ], indent=2)
 
+        # Format root cause context for the prompt
+        root_cause_context = "No root cause data available yet."
+        if root_cause_data.get("root_causes"):
+            root_cause_context = json.dumps(root_cause_data["root_causes"][:5], indent=2)
+        else:
+            # Fall back to root_cause_chain from signals themselves
+            signal_root_causes = []
+            for s in signals[:5]:
+                for rc in (s.get("root_cause_chain") or []):
+                    if rc.get("event"):
+                        signal_root_causes.append(rc)
+            if signal_root_causes:
+                root_cause_context = json.dumps(signal_root_causes, indent=2)
+
         prompt = RESEARCH_PROMPT.format(
             signals=signals_text,
             kg_connections=json.dumps(kg_connections[:15], indent=2),
+            root_cause_context=root_cause_context,
             macro_state=json.dumps(macro_state, indent=2),
             accuracy_note=accuracy_note,
             country=country,
@@ -175,3 +198,47 @@ class ResearchAgent:
 
         text = await call_llm(prompt, agent_name="research_agent")
         return json.loads(text)
+
+    @staticmethod
+    def assemble_full_chain(signal_data: dict, research_result: dict, temporal_data: dict) -> dict:
+        """Stitch together root causes, forward chain, and resolution into one structure.
+
+        Pure data joining — no LLM call. Called by orchestrator after all three
+        agents have completed.
+        """
+        from datetime import datetime as dt
+
+        # Root causes from signal_watcher
+        root_causes = signal_data.get("root_cause_chain") or []
+
+        # Forward chain from research_agent
+        forward_chain = research_result.get("impact_chain") or []
+
+        # Resolution from temporal_agent
+        resolution_chain = []
+        for timeline in (temporal_data.get("timelines") or []):
+            # Resolution conditions (always present)
+            for condition in (timeline.get("resolution_conditions") or []):
+                resolution_chain.append({
+                    "event": condition,
+                    "role": "resolution_condition",
+                    "source": "",
+                    "date": "",
+                })
+            # Actual resolution cause (only for resolved/de-escalating events)
+            rc = timeline.get("resolution_cause", {})
+            if rc and rc.get("what_resolved_it"):
+                resolution_chain.append({
+                    "event": rc["what_resolved_it"],
+                    "role": "resolution_trigger",
+                    "source": rc.get("source", ""),
+                    "date": rc.get("date", ""),
+                })
+
+        return {
+            "root_causes": root_causes,
+            "forward_chain": forward_chain,
+            "resolution_chain": resolution_chain,
+            "root_cause_narrative": research_result.get("root_cause_narrative", ""),
+            "assembled_at": dt.utcnow().isoformat(),
+        }
