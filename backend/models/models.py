@@ -173,6 +173,16 @@ class Signal(Base):
     corroboration_boost = Column(Float, default=0.0)
     final_weight        = Column(Float)
 
+    # Credibility scoring
+    credibility_score   = Column(Float)               # 0.0-1.0 final credibility
+    claim_type          = Column(String)               # factual, analysis, opinion, tip
+    source_urls         = Column(JSON, default=list)   # URLs backing this signal
+    corroboration_count = Column(Integer, default=0)   # number of sources reporting same event
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault('corroboration_count', 0)
+        super().__init__(**kwargs)
+
     # Deduplication
     content_hash        = Column(String, index=True)
 
