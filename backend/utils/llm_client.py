@@ -104,6 +104,34 @@ async def _call_openrouter(prompt: str, model_name: str) -> str:
     return response.choices[0].message.content
 
 
+async def _call_kaggle(prompt: str, model_name: str) -> str:
+    """Call Ollama server running on Kaggle, exposed via ngrok tunnel.
+
+    Uses Ollama's OpenAI-compatible endpoint at `{base}/v1/chat/completions`.
+    KAGGLE_LLM_URL is the ngrok https URL (no trailing slash, no /v1).
+    """
+    from openai import AsyncOpenAI
+    base = os.getenv("KAGGLE_LLM_URL", "").rstrip("/")
+    if not base:
+        raise RuntimeError("KAGGLE_LLM_URL not set")
+    client = AsyncOpenAI(
+        base_url=f"{base}/v1",
+        api_key="ollama",  # Ollama ignores the key but SDK requires a non-empty string
+        default_headers={"ngrok-skip-browser-warning": "true"},
+        timeout=300.0,     # local GPU inference can be slow on first token
+    )
+    response = await client.chat.completions.create(
+        model=model_name,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user",   "content": prompt},
+        ],
+        max_tokens=4096,
+        temperature=0.1,
+    )
+    return response.choices[0].message.content
+
+
 async def _call_gemini(prompt: str, model_name: str) -> str:
     import google.generativeai as genai
     genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
@@ -135,6 +163,7 @@ async def call_llm(prompt: str, agent_name: str = "default") -> str:
     AI_PROVIDER in .env:
       groq       → all agents use Groq Llama (default, testing)
       anthropic  → all agents use Claude (production)
+      kaggle     → all agents use Ollama/Gemma on Kaggle via ngrok tunnel
       auto       → each agent uses its designated model
     """
     global_provider = os.getenv("AI_PROVIDER", "groq")
@@ -154,6 +183,11 @@ async def call_llm(prompt: str, agent_name: str = "default") -> str:
         text = await _call_gemini(prompt, model_name)
         return _clean(text)
 
+    if global_provider == "kaggle":
+        model_name = os.getenv("KAGGLE_LLM_MODEL", "gemma4:26b")
+        text = await _call_kaggle(prompt, model_name)
+        return _clean(text)
+
     # Per-agent routing (AI_PROVIDER=auto)
     config   = AGENT_MODELS.get(agent_name, DEFAULT_MODEL)
     provider = config["provider"]
@@ -169,6 +203,8 @@ async def call_llm(prompt: str, agent_name: str = "default") -> str:
             text = await _call_openrouter(prompt, model)
         elif provider == "gemini":
             text = await _call_gemini(prompt, model)
+        elif provider == "kaggle":
+            text = await _call_kaggle(prompt, model)
         else:
             log.warning("llm_client.unknown_provider", fallback="groq")
             text = await _call_groq(prompt, "llama-3.3-70b-versatile")
