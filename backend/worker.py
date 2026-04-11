@@ -15,7 +15,12 @@ scheduler = AsyncIOScheduler()
 
 
 async def scan_signals():
-    """Scan all signal sources and store new signals."""
+    """Scan all signal sources and store new signals.
+
+    Now wires in the Neo4j driver so SignalWatcherAgent can enrich the
+    knowledge graph (RootCause/Event/Sector nodes + CAUSES/AFFECTS edges)
+    for every new signal ingested.
+    """
     logger.info("worker.scan_signals.start")
     try:
         from database.connection import AsyncSessionLocal
@@ -24,11 +29,35 @@ async def scan_signals():
         import os
 
         redis = aioredis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
-        async with AsyncSessionLocal() as db:
-            agent   = SignalWatcherAgent(db, redis)
-            signals = await agent.scan_all_sources()
-            logger.info("worker.scan_signals.complete", new_signals=len(signals))
-        await redis.close()
+
+        # Neo4j driver — shared across all feeds in this run. If connection
+        # fails we fall back to a None driver so Postgres ingestion still
+        # works and the enricher silently no-ops.
+        neo4j_driver = None
+        try:
+            from neo4j import AsyncGraphDatabase
+            neo4j_driver = AsyncGraphDatabase.driver(
+                os.getenv("NEO4J_URL", "bolt://localhost:7687"),
+                auth=(
+                    os.getenv("NEO4J_USER", "neo4j"),
+                    os.getenv("NEO4J_PASSWORD", "investai123"),
+                ),
+            )
+        except Exception as e:
+            logger.warning("worker.neo4j_init_failed", error=str(e))
+
+        try:
+            async with AsyncSessionLocal() as db:
+                agent   = SignalWatcherAgent(db, redis, neo4j_driver=neo4j_driver)
+                signals = await agent.scan_all_sources()
+                logger.info("worker.scan_signals.complete", new_signals=len(signals))
+        finally:
+            if neo4j_driver is not None:
+                try:
+                    await neo4j_driver.close()
+                except Exception as e:
+                    logger.warning("worker.neo4j_close_failed", error=str(e))
+            await redis.close()
     except Exception as e:
         logger.error("worker.scan_signals.error", error=str(e))
 

@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from utils.llm_client import call_llm
+from agents.credibility_engine import CredibilityEngine
+from agents.graphrag_enricher import GraphRAGEnricher
 
 logger = structlog.get_logger()
 
@@ -33,6 +35,7 @@ Extract and return ONLY valid JSON (no markdown, no preamble):
   "confidence": 0.0-1.0,
   "geography": "global|regional|india|us|europe|china|middle_east",
   "sentiment": "positive|negative|neutral",
+  "claim_type": "factual|analysis|opinion|tip",
   "entities_mentioned": ["Fed", "Oil", "RBI"],
   "sectors_affected": {{
     "aviation": "negative",
@@ -52,6 +55,12 @@ Extract and return ONLY valid JSON (no markdown, no preamble):
   }},
   "requires_immediate_analysis": true
 }}
+
+claim_type legend (be strict — this decides if the signal survives credibility filtering):
+- factual: Verifiable event, decision, or data point (e.g. "RBI raised repo rate to 6.5%", "Brent closed at $92")
+- analysis: Informed reasoning about a factual event (e.g. "The hike is likely to slow FMCG demand")
+- opinion: Subjective view without strong evidence ("Markets look overvalued to me")
+- tip: Trading tip, target price, buy/sell recommendation — ALWAYS use this for pump/dump content
 
 If content has no meaningful financial signal for Indian markets, return:
 {{"importance_score": 0, "requires_immediate_analysis": false}}
@@ -149,9 +158,13 @@ SNAPSHOT_LABELS = {
 
 
 class SignalWatcherAgent:
-    def __init__(self, db_session: AsyncSession, redis_client):
-        self.db    = db_session
-        self.redis = redis_client
+    def __init__(self, db_session: AsyncSession, redis_client, neo4j_driver=None):
+        self.db          = db_session
+        self.redis       = redis_client
+        self.neo4j       = neo4j_driver
+        self.credibility = CredibilityEngine()
+        # Enricher only active when a real Neo4j driver is passed.
+        self.enricher    = GraphRAGEnricher(neo4j_driver) if neo4j_driver else None
 
     async def get_current_signals(self, limit: int = 15) -> dict:
         """Get top current signals from cache or DB."""
@@ -272,14 +285,26 @@ class SignalWatcherAgent:
             "note": f"Demo Mode: Mock signals with LIVE market prices. India VIX: {india_vix:.1f} ({vix_note})",
         }
 
-    async def scan_all_sources(self):
-        """Full scan of all sources. Called by the background worker."""
-        logger.info("signal_watcher.full_scan.start", total_sources=len(RSS_SOURCES))
+    async def scan_all_sources(self, tier_filter: int | None = None, max_entries_per_feed: int = 10):
+        """Full scan of RSS sources.
+
+        Args:
+            tier_filter: If set, only scan sources whose tier == this value.
+                         E.g. tier_filter=1 scans only central banks & regulators.
+            max_entries_per_feed: Hard cap on how many entries per feed are
+                                  classified. Used by the Phase 1 CLI to keep
+                                  Kaggle Ollama load bounded.
+        """
+        sources = [s for s in RSS_SOURCES if tier_filter is None or s["tier"] == tier_filter]
+        logger.info("signal_watcher.full_scan.start",
+                    total_sources=len(sources),
+                    tier_filter=tier_filter,
+                    max_entries_per_feed=max_entries_per_feed)
         new_signals = []
 
-        for source in RSS_SOURCES:
+        for source in sources:
             try:
-                signals = await self._scan_rss(source)
+                signals = await self._scan_rss(source, max_entries=max_entries_per_feed)
                 new_signals.extend(signals)
             except Exception as e:
                 logger.warning("signal_watcher.rss_error", source=source["name"], error=str(e))
@@ -287,7 +312,7 @@ class SignalWatcherAgent:
         logger.info("signal_watcher.full_scan.complete", new_signals=len(new_signals))
         return new_signals
 
-    async def _scan_rss(self, source: dict) -> list:
+    async def _scan_rss(self, source: dict, max_entries: int = 10) -> list:
         from models.models import Signal
 
         try:
@@ -298,7 +323,7 @@ class SignalWatcherAgent:
 
         new_signals = []
 
-        for entry in feed.entries[:10]:
+        for entry in feed.entries[:max_entries]:
             content      = f"{entry.get('title', '')} {entry.get('summary', '')}"
             content_hash = hashlib.md5(content.encode()).hexdigest()
 
@@ -320,6 +345,24 @@ class SignalWatcherAgent:
                 # fall back to "monetary" instead of crashing the whole session
                 raw_type = signal_data.get("signal_type", "monetary")
                 safe_type = raw_type if raw_type in VALID_SIGNAL_TYPES else "monetary"
+
+                # ── Credibility gate ────────────────────────────────────────
+                # Phase 1: corroboration_count defaults to 1 (self-only).
+                # Future work: lookup recent similar signals for true corroboration.
+                claim_type = signal_data.get("claim_type", "analysis")
+                credibility_score = self.credibility.compute_credibility(
+                    source_name=source["name"],
+                    tier=source["tier"],
+                    claim_type=claim_type,
+                    corroboration_count=1,
+                )
+                if not self.credibility.passes_threshold(credibility_score):
+                    logger.info("signal_watcher.credibility_rejected",
+                                source=source["name"],
+                                credibility=credibility_score,
+                                claim_type=claim_type,
+                                tier=source["tier"])
+                    continue
 
                 # Extract root cause from LLM response (0 extra calls)
                 root_cause_raw = signal_data.get("root_cause", {})
@@ -353,6 +396,11 @@ class SignalWatcherAgent:
                     root_cause_chain      = root_cause_chain,
                     final_weight          = signal_data.get("confidence", 0.5) * source["tier"] / 4,
                     content_hash          = content_hash,
+                    # Credibility columns (005_credibility_scoring migration)
+                    credibility_score     = credibility_score,
+                    claim_type            = claim_type,
+                    source_urls           = [source_url] if source_url else [],
+                    corroboration_count   = 1,
                 )
 
                 self.db.add(signal)
@@ -376,6 +424,34 @@ class SignalWatcherAgent:
             except Exception as e:
                 await self.db.rollback()
                 logger.warning("signal_watcher.commit_failed", source=source["name"], error=str(e))
+                return new_signals
+
+            # ── Graph enrichment ──────────────────────────────────────────
+            # Runs AFTER Postgres commit so a Neo4j failure cannot roll back
+            # signals. Each enrichment is 1 LLM call + several Cypher MERGEs.
+            # Runs serially because Kaggle Ollama is single-GPU; parallelism
+            # would just queue at the model layer and increase wall time.
+            if self.enricher:
+                today = datetime.utcnow().strftime("%Y-%m-%d")
+                for signal in new_signals:
+                    try:
+                        # Prefer the DB-assigned detected_at if the session has
+                        # already loaded the server default, else fall back to
+                        # today's date — enrichment only cares about day-level
+                        # granularity for timeline ordering.
+                        date_str = today
+                        if signal.detected_at is not None:
+                            date_str = signal.detected_at.strftime("%Y-%m-%d")
+                        await self.enricher.enrich_from_article(
+                            article_text=signal.content or signal.title,
+                            source=signal.source,
+                            date=date_str,
+                        )
+                    except Exception as e:
+                        logger.warning("signal_watcher.enrichment_failed",
+                                       signal_id=getattr(signal, "id", None),
+                                       source=signal.source,
+                                       error=str(e))
 
         return new_signals
 
