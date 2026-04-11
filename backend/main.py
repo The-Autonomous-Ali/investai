@@ -1,6 +1,13 @@
 """
 InvestAI Backend — FastAPI Application Entry Point
 """
+import os
+from dotenv import load_dotenv
+
+# Load backend/.env if present. Codespaces secrets (already in process env)
+# are NOT overridden because load_dotenv defaults to override=False.
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
