@@ -25,6 +25,9 @@ TECHNICAL ANALYSIS:
 COMPANY DATA:
 {fundamental_data}
 
+ROOT CAUSE CONTEXT (use this to explain WHY things are happening — weave it naturally into your explanation):
+{causal_chain_context}
+
 USER CONTEXT:
 - They have about Rs {amount} they are considering investing
 - Risk tolerance: {risk_profile}
@@ -96,6 +99,9 @@ They have Rs {amount} they are thinking about investing and want to understand w
 COMPLETE ANALYSIS:
 {recommendation}
 
+ROOT CAUSE CONTEXT (use this to explain WHY things are happening — e.g., "Oil prices went up because OPEC cut production"):
+{causal_chain_context}
+
 Write this like you are their trusted elder brother/sister explaining what is happening in the market.
 Simple, caring, honest. Do NOT tell them what to buy or sell — help them understand so THEY can decide.
 
@@ -147,6 +153,7 @@ class PlainLanguageFormatter:
         amount: float = 100000,
         risk_profile: str = "moderate",
         horizon: str = "1 year",
+        causal_chain: dict = None,
     ) -> dict:
         """
         Takes complex technical + fundamental data and returns
@@ -154,6 +161,16 @@ class PlainLanguageFormatter:
         """
         log = logger.bind(symbol=technical_data.get("symbol"))
         log.info("plain_formatter.format_stock")
+
+        # Format causal chain context for the prompt
+        chain_ctx = "No root cause data available."
+        if causal_chain:
+            narrative = causal_chain.get("root_cause_narrative", "")
+            root_causes = causal_chain.get("root_causes", [])
+            if narrative:
+                chain_ctx = narrative
+            elif root_causes:
+                chain_ctx = json.dumps(root_causes[:3], indent=2)
 
         prompt = PLAIN_LANGUAGE_PROMPT.format(
             technical_data=json.dumps({
@@ -174,6 +191,7 @@ class PlainLanguageFormatter:
                 "data_highlights":   fundamental_data.get("data_highlights", {}),
                 "risk_factors":      fundamental_data.get("risk_factors", []),
             }, indent=2)[:1000],
+            causal_chain_context=chain_ctx,
             amount=f"{amount:,.0f}",
             risk_profile=risk_profile,
             horizon=horizon,
@@ -192,6 +210,7 @@ class PlainLanguageFormatter:
         self,
         full_recommendation: dict,
         amount: float = 100000,
+        causal_chain: dict = None,
     ) -> dict:
         """
         Format the complete analysis in plain language.
@@ -224,9 +243,20 @@ class PlainLanguageFormatter:
                               if full_recommendation.get("tax_optimizations") else {},
         }
 
+        # Format causal chain context
+        chain_ctx = "No root cause data available."
+        if causal_chain:
+            narrative = causal_chain.get("root_cause_narrative", "")
+            root_causes = causal_chain.get("root_causes", [])
+            if narrative:
+                chain_ctx = narrative
+            elif root_causes:
+                chain_ctx = json.dumps(root_causes[:3], indent=2)
+
         prompt = PORTFOLIO_SUMMARY_PROMPT.format(
             amount=f"{amount:,.0f}",
             recommendation=json.dumps(simplified, indent=2)[:3000],
+            causal_chain_context=chain_ctx,
         )
 
         try:

@@ -179,6 +179,11 @@ class Signal(Base):
     source_urls         = Column(JSON, default=list)   # URLs backing this signal
     corroboration_count = Column(Integer, default=0)   # number of sources reporting same event
 
+    # Root cause chain (populated by signal_watcher + graphrag_enricher)
+    root_cause_chain    = Column(JSON, default=list)   # [{event, source, date, source_url, role}]
+    resolution_chain    = Column(JSON, default=list)   # [{event, source, date, source_url, role}]
+    full_causal_chain   = Column(JSON, default=dict)   # {root_causes, forward_chain, resolution_chain, assembled_at}
+
     def __init__(self, **kwargs):
         kwargs.setdefault('corroboration_count', 0)
         super().__init__(**kwargs)

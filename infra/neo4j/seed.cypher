@@ -152,4 +152,32 @@ CREATE (e)-[:CAUSES {strength:0.68, avg_lag_days:90, direction:'positive', insta
 MATCH (e:Event {name:'Oil Price Spike'}), (s:Sector {name:'Renewable Energy'})
 CREATE (e)-[:CAUSES {strength:0.62, avg_lag_days:30, direction:'positive', instances:3, confidence:'medium', note:'Accelerates energy transition narrative'}]->(s);
 
+// ── RootCause Node Schema ────────────────────────────────────────────────────
+// RootCause nodes represent specific real-world triggers (e.g. "OPEC cuts 2M bbl/day
+// on Oct 5") as distinct from Event templates (e.g. "Oil Price Spike").
+// Created dynamically by the GraphRAG enricher as signals are processed.
+
+CREATE CONSTRAINT root_cause_name IF NOT EXISTS FOR (rc:RootCause) REQUIRE rc.name IS UNIQUE;
+
+// Example seed: a few well-known historical root causes to bootstrap the graph
+CREATE (:RootCause {name: 'OPEC+ production cut 2022', category: 'commodity', date: '2022-10-05', source: 'OPEC', created_at: datetime()})
+CREATE (:RootCause {name: 'Russia-Ukraine war 2022', category: 'geopolitical', date: '2022-02-24', source: 'Reuters', created_at: datetime()})
+CREATE (:RootCause {name: 'US Fed 75bps hike Jun 2022', category: 'monetary', date: '2022-06-15', source: 'Federal Reserve', created_at: datetime()});
+
+// Link seed root causes to existing events
+MATCH (rc:RootCause {name: 'OPEC+ production cut 2022'}), (e:Event {name: 'Oil Price Spike'})
+CREATE (rc)-[:TRIGGERS {date: '2022-10-05', confidence: 0.92, source: 'OPEC official statement'}]->(e);
+
+MATCH (rc:RootCause {name: 'Russia-Ukraine war 2022'}), (e:Event {name: 'Oil Price Spike'})
+CREATE (rc)-[:TRIGGERS {date: '2022-02-24', confidence: 0.95, source: 'Reuters'}]->(e);
+
+MATCH (rc:RootCause {name: 'Russia-Ukraine war 2022'}), (e:Event {name: 'Global Risk Off'})
+CREATE (rc)-[:TRIGGERS {date: '2022-02-24', confidence: 0.90, source: 'Reuters'}]->(e);
+
+MATCH (rc:RootCause {name: 'US Fed 75bps hike Jun 2022'}), (e:Event {name: 'DXY Strengthening'})
+CREATE (rc)-[:TRIGGERS {date: '2022-06-15', confidence: 0.88, source: 'Federal Reserve'}]->(e);
+
+MATCH (rc:RootCause {name: 'US Fed 75bps hike Jun 2022'}), (e:Event {name: 'FII Selling'})
+CREATE (rc)-[:TRIGGERS {date: '2022-06-15', confidence: 0.80, source: 'Federal Reserve'}]->(e);
+
 RETURN "Knowledge graph seeded successfully" AS status;

@@ -32,25 +32,40 @@ ARTICLE: {article_text}
 SOURCE: {source}
 DATE: {date}
 
+ENTITY TYPES you can use:
+- Event: A market event template (e.g., "Oil Price Spike", "RBI Rate Hike")
+- RootCause: A specific real-world trigger with a date (e.g., "OPEC cuts 2M bbl/day on 2022-10-05"). Use this for concrete decisions, announcements, or incidents that triggered an Event.
+- Sector: An Indian market sector (e.g., "Aviation", "Banking")
+- Commodity: A traded commodity (e.g., "Brent Crude")
+- Effect: A downstream market effect
+
+RELATIONSHIP TYPES you can use:
+- CAUSES: Event/Effect causes another Event/Effect/Sector impact
+- AFFECTS: Something affects a Sector
+- TRIGGERS: A RootCause triggers an Event (use this to connect specific real-world triggers to event templates)
+- RESOLVED_BY: An Event is resolved by a RootCause (e.g., "Oil Price Spike" resolved by "OPEC reverses cut on 2023-06-04")
+- CORRELATES_WITH: Two things move together
+
 Extract and return ONLY valid JSON:
 {{
   "entities": [
     {{
-      "name": "Iran-Israel Conflict",
-      "type": "Event",
+      "name": "OPEC cuts 2M bbl/day Oct 2024",
+      "type": "RootCause",
       "properties": {{
-        "event_type": "geopolitical",
-        "geography": "middle_east",
-        "started": "2024-10",
-        "status": "ongoing"
+        "category": "commodity",
+        "date": "2024-10-05",
+        "source": "OPEC",
+        "source_url": ""
       }}
     }},
     {{
-      "name": "Brent Crude",
-      "type": "Commodity",
+      "name": "Oil Price Spike",
+      "type": "Event",
       "properties": {{
-        "unit": "USD/barrel",
-        "current_price": 84.0
+        "event_type": "commodity",
+        "geography": "global",
+        "status": "ongoing"
       }}
     }},
     {{
@@ -64,20 +79,20 @@ Extract and return ONLY valid JSON:
   ],
   "relationships": [
     {{
-      "from": "Iran-Israel Conflict",
-      "from_type": "Event",
-      "relationship": "CAUSES",
-      "to": "Brent Crude Price Rise",
-      "to_type": "Effect",
+      "from": "OPEC cuts 2M bbl/day Oct 2024",
+      "from_type": "RootCause",
+      "relationship": "TRIGGERS",
+      "to": "Oil Price Spike",
+      "to_type": "Event",
       "properties": {{
-        "strength": 0.85,
-        "avg_lag_days": 1,
-        "confidence": 0.82
+        "date": "2024-10-05",
+        "confidence": 0.92,
+        "source": "OPEC official statement"
       }}
     }},
     {{
-      "from": "Brent Crude Price Rise",
-      "from_type": "Effect",
+      "from": "Oil Price Spike",
+      "from_type": "Event",
       "relationship": "AFFECTS",
       "to": "Aviation",
       "to_type": "Sector",
@@ -93,6 +108,7 @@ Extract and return ONLY valid JSON:
   "key_insight": "One sentence on why this matters for India"
 }}
 
+IMPORTANT: Always try to identify the specific RootCause (who did what, when) behind events.
 Focus only on relationships that affect Indian markets.
 If the article has no India relevance, return {{"india_relevance_score": 0, "entities": [], "relationships": []}}
 """

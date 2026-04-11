@@ -62,6 +62,81 @@ async def query_knowledge_graph(
         return _fallback_kg_data(entities, signal_types)
 
 
+# ── Root Cause Chain Query ────────────────────────────────────────────────────
+
+ROOT_CAUSE_QUERY = """
+MATCH (rc:RootCause)-[t:TRIGGERS]->(e:Event)-[:CAUSES*1..3]->(impact)
+WHERE e.name IN $event_names OR e.type IN $signal_types
+OPTIONAL MATCH (impact)-[:AFFECTS]->(sector:Sector {country: $country})
+RETURN DISTINCT
+  rc.name as root_cause,
+  rc.category as root_cause_category,
+  rc.date as root_cause_date,
+  rc.source as root_cause_source,
+  t.confidence as trigger_confidence,
+  e.name as event,
+  impact.name as effect,
+  sector.name as india_sector
+ORDER BY t.confidence DESC
+LIMIT 20
+"""
+
+RESOLUTION_QUERY = """
+MATCH (e:Event)-[r:RESOLVED_BY]->(rc:RootCause)
+WHERE e.name IN $event_names
+RETURN DISTINCT
+  e.name as event,
+  rc.name as resolution_cause,
+  rc.date as resolution_date,
+  rc.source as resolution_source,
+  r.confidence as confidence
+ORDER BY r.confidence DESC
+LIMIT 10
+"""
+
+
+async def query_root_cause_chain(
+    neo4j_driver,
+    event_names: list,
+    signal_types: list = None,
+    country: str = "India",
+) -> dict:
+    """Query Neo4j for root causes that triggered events and any resolution causes.
+
+    Returns {"root_causes": [...], "resolutions": [...]}.
+    Falls back to empty lists if Neo4j is unavailable.
+    """
+    if not neo4j_driver:
+        return {"root_causes": [], "resolutions": []}
+
+    signal_types = signal_types or []
+    root_causes = []
+    resolutions = []
+
+    try:
+        async with neo4j_driver.session() as session:
+            # Root causes
+            result = await session.run(
+                ROOT_CAUSE_QUERY,
+                event_names=event_names[:10],
+                signal_types=signal_types,
+                country=country,
+            )
+            root_causes = await result.data()
+
+            # Resolutions
+            result = await session.run(
+                RESOLUTION_QUERY,
+                event_names=event_names[:10],
+            )
+            resolutions = await result.data()
+
+    except Exception as e:
+        logger.warning("kg_traversal.root_cause_query_error", error=str(e))
+
+    return {"root_causes": root_causes, "resolutions": resolutions}
+
+
 def _fallback_kg_data(entities: list, signal_types: list) -> list:
     """Hardcoded causal chains used when Neo4j is unavailable.
     Verbatim copy of the former ResearchAgent._get_fallback_kg_data.

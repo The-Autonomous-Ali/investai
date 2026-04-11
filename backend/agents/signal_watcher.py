@@ -44,6 +44,12 @@ Extract and return ONLY valid JSON (no markdown, no preamble):
     "Oil spike -> INR depreciation -> FII outflows",
     "Higher input costs -> FMCG margin pressure"
   ],
+  "root_cause": {{
+    "trigger_event": "What specific public event/decision triggered this signal?",
+    "trigger_source": "Reuters|RBI|OPEC|etc — who reported or announced it",
+    "trigger_date": "YYYY-MM-DD or best estimate",
+    "trigger_category": "geopolitical|monetary|fiscal|commodity|currency|corporate|natural_disaster|trade"
+  }},
   "requires_immediate_analysis": true
 }}
 
@@ -315,6 +321,19 @@ class SignalWatcherAgent:
                 raw_type = signal_data.get("signal_type", "monetary")
                 safe_type = raw_type if raw_type in VALID_SIGNAL_TYPES else "monetary"
 
+                # Extract root cause from LLM response (0 extra calls)
+                root_cause_raw = signal_data.get("root_cause", {})
+                source_url = entry.get("link", "")
+                root_cause_chain = []
+                if root_cause_raw and root_cause_raw.get("trigger_event"):
+                    root_cause_chain = [{
+                        "event":      root_cause_raw.get("trigger_event", ""),
+                        "source":     root_cause_raw.get("trigger_source", source["name"]),
+                        "date":       root_cause_raw.get("trigger_date", ""),
+                        "source_url": source_url,
+                        "role":       "trigger",
+                    }]
+
                 signal = Signal(
                     title                 = signal_data.get("title", entry.get("title", ""))[:100],
                     content               = content[:2000],
@@ -331,6 +350,7 @@ class SignalWatcherAgent:
                     sectors_affected      = signal_data.get("sectors_affected", {}),
                     india_impact_analysis = signal_data.get("india_impact", "medium"),
                     chain_effects         = signal_data.get("second_order_effects", []),
+                    root_cause_chain      = root_cause_chain,
                     final_weight          = signal_data.get("confidence", 0.5) * source["tier"] / 4,
                     content_hash          = content_hash,
                 )
