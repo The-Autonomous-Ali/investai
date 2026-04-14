@@ -82,7 +82,7 @@ async def _call_groq(prompt: str, model_name: str) -> str:
         # now falls back to mistral which is free and working on OpenRouter
         if "429" in str(e) or "rate_limit" in str(e):
             logger.warning("groq.rate_limit_hit_falling_back_to_openrouter")
-            return await _call_openrouter(prompt, "mistralai/mistral-7b-instruct:free")
+            return await _call_openrouter(prompt, "meta-llama/llama-3.3-70b-instruct:free")
         raise
 
 
