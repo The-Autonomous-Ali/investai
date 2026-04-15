@@ -14,7 +14,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
 import structlog
 
-from database.connection import init_db
+from database.connection import init_db, AsyncSessionLocal
 from routes import auth, users, signals, portfolio, agents, subscriptions, alerts
 from routes.whatif import router as whatif_router
 from utils.scheduler import start_scheduler, stop_scheduler
@@ -22,11 +22,32 @@ from utils.scheduler import start_scheduler, stop_scheduler
 logger = structlog.get_logger()
 
 
+async def ensure_demo_user():
+    """Seed demo_user so /api/agents/advice persists AdviceRecord + AdviceSignalLink.
+    Without this seed, store_advice silently skips and the 24/7 thesis monitor
+    has no rows to watch."""
+    from sqlalchemy import select
+    from models.models import User
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(User).where(User.id == "demo_user"))
+        if result.scalar_one_or_none() is not None:
+            return
+        db.add(User(id="demo_user", email="demo@investai.local", name="Demo User"))
+        try:
+            await db.commit()
+            logger.info("demo_user.seeded")
+        except Exception as e:
+            await db.rollback()
+            logger.warning("demo_user.seed_failed", error=str(e))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
     logger.info("🚀 InvestAI Backend starting...")
     await init_db()
+    await ensure_demo_user()
     start_scheduler()
     logger.info("✅ All systems ready")
     yield
