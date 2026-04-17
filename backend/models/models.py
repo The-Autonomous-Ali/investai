@@ -189,7 +189,10 @@ class Signal(Base):
         super().__init__(**kwargs)
 
     # Deduplication
-    content_hash        = Column(String, index=True)
+    content_hash        = Column(String, unique=True, index=True)
+
+    # Provenance — where the SOURCE is based (vs `geography` which is what the signal AFFECTS)
+    source_region       = Column(String, index=True)  # us | eu | uk | jp | cn | in | global
 
     detected_at         = Column(DateTime, server_default=func.now())
     updated_at          = Column(DateTime, server_default=func.now(), onupdate=func.now())
