@@ -71,6 +71,12 @@ services:
 
   redis:
     image: redis:7-alpine
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
     ports:
       - "6379:6379"
     volumes:
@@ -80,7 +86,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-    mem_limit: 128m
+    mem_limit: 256m
 
   neo4j:
     image: neo4j:4.4-community

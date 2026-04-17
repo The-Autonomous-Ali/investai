@@ -104,6 +104,17 @@
 - ForexFactory calendar — scrape
 - TradingEconomics — free tier scrape
 
+### Capital flow tracking (WHERE is the money moving — critical for rotation detection)
+| Source | Type | URL | Why it matters |
+|---|---|---|---|
+| NSDL FPI daily flows | Scrape | `https://www.fpi.nsdl.co.in/web/Reports/Yearwise.aspx` | Official daily foreign flows into Indian equity/debt |
+| BSE FII/DII activity | Scrape | `https://www.bseindia.com/markets/equity/EQReports/fii_dii_trend.aspx` | Foreign vs domestic institutional split |
+| NSE FII derivatives | Scrape | `https://www.nseindia.com/market-data/fii-dii-stats` | FII positioning in futures/options |
+| US TIC data | REST | `https://home.treasury.gov/data/treasury-international-capital-tic-system` | Global capital flows into/out of US |
+| Credit spread proxies | yfinance | HYG/LQD ratio, EMB/TLT ratio | Risk appetite gauge |
+| Key ETF flows (proxy via volume + AUM change) | yfinance | `INDA`, `INDY` (India), `FXI`, `MCHI` (China), `EWJ` (Japan), `EWZ` (Brazil), `EEM` (EM basket), `SPY`, `QQQ` | Where global money is actually going |
+| India sector rotation | yfinance | All Nifty sector indices (already have) + relative strength | Detect internal rotation within India |
+
 ---
 
 ## Part 2 — Architecture Changes
@@ -208,3 +219,28 @@
 ## Part 7 — What ships after this plan lands
 
 After Phase E: the banker has enterprise-grade senses. Any new feed = one-line registry entry. From this point, Phase 2 trust mechanics (source citations in output, 2+ source rule) become trivial to add because the provenance data is already there.
+
+---
+
+## Part 8 — Product behaviors this data unlocks
+
+This plan is a DATA layer plan. The reasoning agents already exist. Once data reaches them:
+
+**Cross-market rotation detection**
+`global_macro_agent.py` already outputs `risk_regime`, `macro_tailwinds_for_india`, `macro_headwinds_for_india`, `affected_india_sectors`. With global price + flow data flowing in, it can now detect patterns like "US tech selling → Asian tech next → IT export tailwind for India" in real time.
+
+**Capital flow intelligence**
+FII/DII daily flows + global ETF flow proxies + credit spreads feed a new `capital_flow_agent` (to be scoped separately) that answers "where is the smart money going right now and what does that imply for India?".
+
+**Strategy generation + update loop**
+Existing `AdviceRecord` + `AdviceSignalLink` + `signal_monitor` already implement the update loop: advice is stored with the signals that supported it, and when those signals change, the monitor raises alerts. Scaling this = more signals, not more code.
+
+**Probabilistic output (institutional-grade language)**
+Every advice/strategy output MUST include:
+- `probability: float` (0-1)  — e.g., 0.70 for "70% chance"
+- `confidence_level`: low | medium | high  — self-assessed by the agent
+- `calibration_basis`: "N past similar setups, M resolved as predicted"  — uses existing `evaluation/calibrate.py`
+- `time_horizon`: explicit (e.g., "next 30 days")
+- `disconfirming_conditions`: what would invalidate this thesis
+
+This is a schema change to the LLM output contract in `agents_impl.py`, scheduled as a follow-up ticket after this data layer lands. Added here as a note so the ingestion layer can include the `historical_outcome_link` fields needed to calibrate.
