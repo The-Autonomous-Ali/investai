@@ -74,8 +74,12 @@ def patch_deps():
         async def __aexit__(self, *a):
             return None
 
+    # AsyncSessionLocal is lazy-imported inside _insert_signal, so we
+    # patch it at its real module (database.connection) — that's where
+    # the `from database.connection import AsyncSessionLocal` statement
+    # resolves at call time.
     with patch("ingestion.signal_extractor.get_client", return_value=fake_redis), \
-         patch("ingestion.signal_extractor.AsyncSessionLocal", _CtxFactory()):
+         patch("database.connection.AsyncSessionLocal", _CtxFactory()):
         yield {
             "redis": fake_redis,
             "session": fake_session,

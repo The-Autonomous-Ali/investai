@@ -32,7 +32,6 @@ from typing import Optional
 import structlog
 from sqlalchemy.exc import IntegrityError
 
-from database.connection import AsyncSessionLocal
 from ingestion.redis_client import get_client
 from models.models import Signal, SignalType, SignalUrgency
 
@@ -244,6 +243,11 @@ class SignalExtractor:
 
     async def _insert_signal(self, fields: dict, extracted: dict) -> bool:
         """Insert a Signal row. Returns False on duplicate (unique violation)."""
+        # Lazy import — the DB engine creation at module load would pull
+        # asyncpg into the import graph, which is unnecessary for unit
+        # tests and harmful if the driver isn't installed in CI.
+        from database.connection import AsyncSessionLocal
+
         signal_type = self._coerce_enum(
             extracted.get("signal_type"), SignalType, SignalType.CORPORATE
         )
