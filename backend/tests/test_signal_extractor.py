@@ -6,11 +6,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-# Force submodule import so patch("ingestion.signal_extractor.X") can
-# resolve the target at fixture-setup time. Without this, tests that
-# use the autouse fixture fail with:
-#   AttributeError: module 'ingestion' has no attribute 'signal_extractor'
+# Force submodule imports so patch(...) can resolve target paths at
+# fixture-setup time. Without these, tests fail with:
+#   AttributeError: module 'X' has no attribute 'Y'
+# because mock.patch doesn't auto-import submodules.
 import ingestion.signal_extractor  # noqa: F401
+import database.connection  # noqa: F401
 
 
 def _fake_redis():
