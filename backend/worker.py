@@ -1,6 +1,7 @@
 """
 Background Worker — Runs scheduled tasks:
-- Every 15 min: Scan all signal sources
+- Every 15 min: Scan all signal sources (legacy path + new ingestion dispatcher)
+- Continuously: signal_extractor consumer drains the signals.raw stream
 - Every morning 6am: Run daily event lifecycle update
 - Every Sunday: Score 90-day-old advice performance
 """
@@ -12,6 +13,10 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 logger = structlog.get_logger()
 scheduler = AsyncIOScheduler()
+
+# Handle to the continuously-running signal extractor. Set in main().
+_extractor_task: asyncio.Task | None = None
+_extractor_instance = None
 
 
 async def scan_signals():
@@ -60,6 +65,61 @@ async def scan_signals():
             await redis.close()
     except Exception as e:
         logger.error("worker.scan_signals.error", error=str(e))
+
+
+async def run_ingestion_dispatcher():
+    """Iterate every connector in feed_registry and call .run() on each.
+
+    This is the new pipeline — connectors push RawSignals onto the
+    signals.raw Redis Stream, and the continuously-running extractor
+    task drains the stream into the Postgres signals table.
+
+    Each connector isolates its own failures via BaseConnector.run(),
+    so one broken feed cannot kill the batch.
+    """
+    logger.info("worker.ingestion_dispatcher.start")
+    try:
+        from ingestion.feed_registry import get_all_connectors
+        connectors = get_all_connectors()
+
+        # Run connectors concurrently — most of their wall time is I/O.
+        # gather(return_exceptions=True) so one crash doesn't cancel peers.
+        results = await asyncio.gather(
+            *[c.run() for c in connectors],
+            return_exceptions=True,
+        )
+        total_new = sum(r for r in results if isinstance(r, int))
+        errors = sum(1 for r in results if isinstance(r, Exception))
+        logger.info(
+            "worker.ingestion_dispatcher.complete",
+            connectors=len(connectors),
+            new_signals=total_new,
+            errors=errors,
+        )
+    except Exception as e:
+        logger.error("worker.ingestion_dispatcher.error", error=str(e))
+
+
+async def run_signal_extractor_loop():
+    """Long-running consumer — drains signals.raw into the Signal table.
+
+    Started once at worker boot and runs until worker shuts down.
+    Survives Redis/LLM outages via internal try/except in the extractor.
+    """
+    global _extractor_instance
+    try:
+        from ingestion.signal_extractor import SignalExtractor
+        _extractor_instance = SignalExtractor()
+        logger.info(
+            "worker.signal_extractor.starting",
+            consumer=_extractor_instance.consumer_name,
+        )
+        await _extractor_instance.run_forever()
+    except asyncio.CancelledError:
+        logger.info("worker.signal_extractor.cancelled")
+        raise
+    except Exception as e:
+        logger.error("worker.signal_extractor.crashed", error=str(e))
 
 
 async def monitor_signal_changes():
@@ -121,12 +181,22 @@ async def score_advice_performance():
 
 
 def start_scheduler():
-    scheduler.add_job(scan_signals,             IntervalTrigger(minutes=15),            id="scan_signals",    replace_existing=True)
-    scheduler.add_job(monitor_signal_changes,   IntervalTrigger(minutes=30),            id="signal_monitor",  replace_existing=True)
-    scheduler.add_job(update_event_lifecycles,  CronTrigger(hour=6, minute=0),          id="lifecycle",       replace_existing=True)
-    scheduler.add_job(score_advice_performance, CronTrigger(day_of_week='sun', hour=2), id="score_advice",    replace_existing=True)
+    scheduler.add_job(scan_signals,             IntervalTrigger(minutes=15),            id="scan_signals",         replace_existing=True)
+    scheduler.add_job(run_ingestion_dispatcher, IntervalTrigger(minutes=15),            id="ingestion_dispatcher", replace_existing=True)
+    scheduler.add_job(monitor_signal_changes,   IntervalTrigger(minutes=30),            id="signal_monitor",       replace_existing=True)
+    scheduler.add_job(update_event_lifecycles,  CronTrigger(hour=6, minute=0),          id="lifecycle",            replace_existing=True)
+    scheduler.add_job(score_advice_performance, CronTrigger(day_of_week='sun', hour=2), id="score_advice",         replace_existing=True)
     scheduler.start()
-    logger.info("worker.scheduler.started", jobs=["scan_signals(15m)", "signal_monitor(30m)", "lifecycle(6am)", "score_advice(sun)"])
+    logger.info(
+        "worker.scheduler.started",
+        jobs=[
+            "scan_signals(15m)",
+            "ingestion_dispatcher(15m)",
+            "signal_monitor(30m)",
+            "lifecycle(6am)",
+            "score_advice(sun)",
+        ],
+    )
 
 
 def stop_scheduler():
@@ -134,13 +204,26 @@ def stop_scheduler():
 
 
 async def main():
+    global _extractor_task
     logger.info("Starting background worker...")
     start_scheduler()
+
+    # Kick off the continuous stream consumer alongside the scheduler.
+    _extractor_task = asyncio.create_task(run_signal_extractor_loop())
+
     try:
         while True:
             await asyncio.sleep(3600)
     except (KeyboardInterrupt, SystemExit):
         stop_scheduler()
+        if _extractor_instance is not None:
+            _extractor_instance.stop()
+        if _extractor_task is not None:
+            _extractor_task.cancel()
+            try:
+                await _extractor_task
+            except (asyncio.CancelledError, Exception):
+                pass
 
 
 if __name__ == "__main__":
