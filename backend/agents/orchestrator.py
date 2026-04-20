@@ -193,11 +193,11 @@ class OrchestratorAgent:
                 "conflicts":    conflicts,
             })
 
-            if critic_result["verdict"] == "REVISE":
+            if critic_result.get("verdict") == "REVISE":
                 log.info("orchestrator.critic_revise")
                 portfolio_output = await self.agents["portfolio_agent"].run({
                     **state["agent_outputs"],
-                    "critic_feedback": critic_result["feedback"],
+                    "critic_feedback": critic_result.get("feedback", ""),
                     "user_profile":    state["user_profile"],
                     "amount":          amount,
                     "horizon":         horizon,
@@ -311,7 +311,7 @@ class OrchestratorAgent:
                 "recommendation":  final,
                 "signals_used":    state["agent_outputs"].get("signal_watcher", {}).get("signals", []),
                 "market_snapshot": state["agent_outputs"].get("signal_watcher", {}).get("market_snapshot", {}),
-                "critic_verdict":  critic_result["verdict"],
+                "critic_verdict":  critic_result.get("verdict", "PASS"),
             })
 
             # ── Step 12: Snapshot driving signals for monitoring ───────────────
@@ -352,7 +352,7 @@ class OrchestratorAgent:
                     "elapsed_seconds":    elapsed,
                     "agents_used":        list(state["agent_outputs"].keys()),
                     "conflicts_detected": len(conflicts),
-                    "critic_verdict":     critic_result["verdict"],
+                    "critic_verdict":     critic_result.get("verdict", "PASS"),
                 }
             }
 
