@@ -18,10 +18,12 @@ router = APIRouter()
 
 
 class ProfileUpdate(BaseModel):
+    name: Optional[str] = None
     risk_tolerance: Optional[str] = None
     investment_horizon: Optional[str] = None
     monthly_income_bracket: Optional[str] = None
     tax_bracket: Optional[int] = None
+    country: Optional[str] = None
     state: Optional[str] = None
     experience_level: Optional[str] = None
     avoid_sectors: Optional[list[str]] = None

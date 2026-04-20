@@ -6,7 +6,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from database.connection import get_db
+from agents.agents_impl import MemoryAgent
 from agents.orchestrator import OrchestratorAgent
+from models.models import User
+from services.recommendation_policy import RecommendationPolicy
+from utils.auth import get_current_user
 import redis.asyncio as aioredis
 import os
 
@@ -15,7 +19,7 @@ router = APIRouter()
 
 class AdviceRequest(BaseModel):
     query:   str   = Field(..., max_length=500)
-    amount:  float = Field(..., gt=0, le=100_000_000)
+    amount:  float = Field(default=0, ge=0, le=100_000_000)
     horizon: str   = Field(default="1 year")
     country: str   = Field(default="India")
 
@@ -46,6 +50,7 @@ def get_neo4j():
 @router.post("/advice", response_model=AdviceResponse)
 async def get_investment_advice(
     request: AdviceRequest,
+    user: User = Depends(get_current_user),
     db:    AsyncSession = Depends(get_db),  # FIX: was Session (sync), now AsyncSession
     redis              = Depends(get_redis),
 ):
@@ -53,18 +58,30 @@ async def get_investment_advice(
     Main advice endpoint. Runs the full multi-agent pipeline.
     Returns personalized investment recommendation.
     """
-    user_id = "demo_user"  # replace with actual auth
-
     neo4j = get_neo4j()
     try:
         orchestrator = OrchestratorAgent(db, redis, neo4j)
         result = await orchestrator.run(
-            user_id=user_id,
+            user_id=user.id,
             query=request.query,
             amount=request.amount,
             horizon=request.horizon,
             country=request.country,
         )
+        if result.get("success") and result.get("recommendation"):
+            memory = MemoryAgent(db)
+            user_context = await memory.get_user_context(user.id)
+            policy = RecommendationPolicy()
+            result["recommendation"] = policy.build(
+                query=request.query,
+                amount=request.amount,
+                horizon=request.horizon,
+                country=request.country,
+                user_profile=user_context,
+                analysis=result["recommendation"],
+            )
+            result.setdefault("meta", {})
+            result["meta"]["policy_version"] = result["recommendation"]["policy_version"]
         return AdviceResponse(**result)
     finally:
         await neo4j.close()

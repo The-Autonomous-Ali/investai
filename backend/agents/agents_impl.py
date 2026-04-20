@@ -229,14 +229,20 @@ class MemoryAgent:
         )
         holdings = result.scalars().all()
 
+        total_current_value = sum(
+            ((h.current_price or h.avg_buy_price or 0) * (h.quantity or 0))
+            for h in holdings
+        )
+
         return {
-            "risk_tolerance":        user.risk_tolerance,
+            "risk_tolerance":        user.risk_tolerance.value if user.risk_tolerance else "moderate",
             "experience_level":      user.experience_level,
             "tax_bracket":           user.tax_bracket,
             "avoid_sectors":         user.avoid_sectors or [],
             "preferred_instruments": user.preferred_instruments or [],
             "state":                 user.state,
-            "subscription_tier":     user.subscription_tier,
+            "country":               user.country,
+            "subscription_tier":     user.subscription_tier.value if user.subscription_tier else "free",
             "past_advice": [
                 {
                     "date":      a.created_at.isoformat() if a.created_at else None,
@@ -247,9 +253,34 @@ class MemoryAgent:
                 for a in past_advice
             ],
             "current_holdings": [
-                {"symbol": h.symbol, "sector": h.sector, "instrument_type": h.instrument_type}
+                {"symbol": h.symbol, "name": h.name, "sector": h.sector, "instrument_type": h.instrument_type}
                 for h in holdings
             ],
+            "current_holdings_detail": [
+                {
+                    "id": h.id,
+                    "symbol": h.symbol,
+                    "name": h.name,
+                    "sector": h.sector,
+                    "instrument_type": h.instrument_type,
+                    "quantity": h.quantity,
+                    "avg_buy_price": h.avg_buy_price,
+                    "current_price": h.current_price,
+                    "invested_value": round((h.avg_buy_price or 0) * (h.quantity or 0), 2),
+                    "current_value": round((h.current_price or h.avg_buy_price or 0) * (h.quantity or 0), 2),
+                    "pnl": round(((h.current_price or h.avg_buy_price or 0) - (h.avg_buy_price or 0)) * (h.quantity or 0), 2),
+                    "pnl_pct": round((((h.current_price or h.avg_buy_price or 0) - (h.avg_buy_price or 0)) / (h.avg_buy_price or 1)) * 100, 2)
+                               if h.avg_buy_price else 0,
+                    "buy_date": h.buy_date.isoformat() if h.buy_date else None,
+                    "weight_pct": round((((h.current_price or h.avg_buy_price or 0) * (h.quantity or 0)) / total_current_value) * 100, 2)
+                                 if total_current_value > 0 else 0,
+                }
+                for h in holdings
+            ],
+            "portfolio_summary": {
+                "total_holdings": len(holdings),
+                "total_current_value": round(total_current_value, 2),
+            },
         }
 
     async def store_advice(self, user_id: str, advice_data: dict):

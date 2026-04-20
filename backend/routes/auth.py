@@ -120,6 +120,8 @@ async def get_current_user_info(user: User = Depends(get_current_user)):
         "subscription_tier": user.subscription_tier.value if user.subscription_tier else "free",
         "risk_tolerance": user.risk_tolerance.value if user.risk_tolerance else "moderate",
         "investment_horizon": user.investment_horizon,
+        "country": user.country,
+        "state": user.state,
         "experience_level": user.experience_level,
         "queries_used_this_month": user.queries_used_this_month or 0,
         "created_at": user.created_at.isoformat() if user.created_at else None,

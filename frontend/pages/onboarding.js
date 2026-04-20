@@ -1,24 +1,78 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
 import Head from 'next/head'
 import { motion } from 'framer-motion'
-import { TrendingUp, User, Shield, ArrowRight, CheckCircle } from 'lucide-react'
+import { useSession } from 'next-auth/react'
+import { TrendingUp, User, Shield, ArrowRight, CheckCircle, AlertCircle } from 'lucide-react'
+import { getCurrentUser, loginWithGoogle, updateUserProfile } from '../lib/api'
 
 export default function Onboarding() {
   const [name, setName] = useState('')
   const [loading, setLoading] = useState(false)
+  const [demoMode, setDemoMode] = useState(false)
+  const [error, setError] = useState('')
   const router = useRouter()
+  const { data: session, status } = useSession()
+
+  useEffect(() => {
+    const isDemo = typeof window !== 'undefined' && sessionStorage.getItem('demo_mode') === 'true'
+    setDemoMode(isDemo)
+
+    if (isDemo) {
+      try {
+        const demoUser = JSON.parse(sessionStorage.getItem('demo_user') || '{}')
+        if (demoUser.name) setName((prev) => prev || demoUser.name)
+      } catch {}
+      return
+    }
+
+    if (status === 'unauthenticated') {
+      router.push('/auth/signin')
+      return
+    }
+
+    if (session?.user?.name) {
+      setName((prev) => prev || session.user.name)
+    }
+  }, [router, session, status])
+
+  const ensureBackendSession = async () => {
+    const existingToken = localStorage.getItem('investai_token')
+    if (!existingToken) {
+      if (!session?.idToken) {
+        throw new Error('Google sign-in did not provide a usable ID token.')
+      }
+      await loginWithGoogle(session.idToken)
+    }
+
+    return getCurrentUser()
+  }
 
   const handleCreateAccount = async (e) => {
     e.preventDefault()
     if (!name) return
     
     setLoading(true)
-    // Simulate account creation
-    setTimeout(() => {
-      sessionStorage.setItem('investai_user_name', name)
+    setError('')
+    try {
+      if (demoMode) {
+        sessionStorage.setItem('investai_user_name', name)
+        router.push('/invest')
+        return
+      }
+
+      const currentUser = await ensureBackendSession()
+      if (name && name !== currentUser?.name) {
+        await updateUserProfile({ name })
+      }
+      sessionStorage.setItem('investai_user_name', name || currentUser?.name || session?.user?.name || 'Investor')
       router.push('/invest')
-    }, 1500)
+    } catch (onboardingError) {
+      console.error('Failed to finish onboarding:', onboardingError)
+      const detail = onboardingError?.response?.data?.detail
+      setError(detail || 'Failed to connect your account to InvestAI. Please sign in again.')
+      setLoading(false)
+    }
   }
 
   return (
@@ -73,6 +127,13 @@ export default function Onboarding() {
                 <span>Your data is encrypted and never shared with third parties.</span>
               </div>
             </div>
+
+            {error && (
+              <div className="rounded-xl border border-ruby/20 bg-ruby/5 p-4 text-sm text-ruby flex gap-3">
+                <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
 
             <button
               disabled={!name || loading}

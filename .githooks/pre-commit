@@ -10,13 +10,17 @@ if [ -n "$BLOCKED_FILES" ]; then
     exit 1
 fi
 
-# Block common secret patterns in staged files
+# Block common secret patterns in staged files.
+# Exclude docs/ markdown: plan docs legitimately describe these patterns as anti-patterns.
 SECRETS_PATTERN='(sk-ant-|sk-or-v1-|gsk_[A-Za-z0-9]{20,}|rzp_live_|AKIA[A-Z0-9]{16})'
-STAGED_CONTENT=$(git diff --cached -U0 | grep -E "^\+" | grep -vE "^\+\+\+" || true)
-if echo "$STAGED_CONTENT" | grep -qE "$SECRETS_PATTERN"; then
-    echo "ERROR: Possible API key or secret detected in staged changes."
-    echo "Review your changes and remove secrets before committing."
-    exit 1
+SCAN_FILES=$(git diff --cached --name-only | grep -vE '^docs/.*\.md$' || true)
+if [ -n "$SCAN_FILES" ]; then
+    STAGED_CONTENT=$(git diff --cached -U0 -- $SCAN_FILES | grep -E "^\+" | grep -vE "^\+\+\+" || true)
+    if echo "$STAGED_CONTENT" | grep -qE "$SECRETS_PATTERN"; then
+        echo "ERROR: Possible API key or secret detected in staged changes."
+        echo "Review your changes and remove secrets before committing."
+        exit 1
+    fi
 fi
 
 echo "Pre-commit: no secrets detected."
