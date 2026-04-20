@@ -163,6 +163,7 @@ async def call_llm(prompt: str, agent_name: str = "default") -> str:
     AI_PROVIDER in .env:
       groq       → all agents use Groq Llama (default, testing)
       anthropic  → all agents use Claude (production)
+      openrouter → all agents go through OpenRouter (fallback when Groq is rate-limited or key revoked)
       kaggle     → all agents use Ollama/Gemma on Kaggle via ngrok tunnel
       auto       → each agent uses its designated model
     """
@@ -176,6 +177,11 @@ async def call_llm(prompt: str, agent_name: str = "default") -> str:
     if global_provider == "groq":
         model_name = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
         text = await _call_groq(prompt, model_name)
+        return _clean(text)
+
+    if global_provider == "openrouter":
+        model_name = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
+        text = await _call_openrouter(prompt, model_name)
         return _clean(text)
 
     if global_provider == "gemini":
