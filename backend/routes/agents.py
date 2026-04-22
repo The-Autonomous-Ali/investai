@@ -1,7 +1,7 @@
 """
 /api/agents — Main investment advice endpoint
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -10,10 +10,18 @@ from agents.agents_impl import MemoryAgent
 from agents.orchestrator import OrchestratorAgent
 from models.models import User
 from services.entitlements import consume_advice_quota, ensure_advice_quota
+from services.rate_limiter import enforce_ip_limit, enforce_user_limit
 from services.recommendation_policy import RecommendationPolicy
 from utils.auth import get_current_user
 import redis.asyncio as aioredis
 import os
+
+
+def _client_ip(http_request: Request) -> str:
+    forwarded = http_request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return http_request.client.host if http_request.client else "unknown"
 
 router = APIRouter()
 
@@ -51,6 +59,7 @@ def get_neo4j():
 @router.post("/advice", response_model=AdviceResponse)
 async def get_investment_advice(
     request: AdviceRequest,
+    http_request: Request,
     user: User = Depends(get_current_user),
     db:    AsyncSession = Depends(get_db),  # FIX: was Session (sync), now AsyncSession
     redis              = Depends(get_redis),
@@ -59,6 +68,8 @@ async def get_investment_advice(
     Main advice endpoint. Runs the full multi-agent pipeline.
     Returns personalized investment recommendation.
     """
+    await enforce_ip_limit(redis, _client_ip(http_request))
+    await enforce_user_limit(redis, user.id)
     ensure_advice_quota(user)
     neo4j = get_neo4j()
     try:
