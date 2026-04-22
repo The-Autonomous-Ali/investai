@@ -1,88 +1,120 @@
 InvestAI Top 10 Issues
 Date: 2026-04-22
+Updated after hardening pass: commit c28a3ec
 
-1. Entitlement is not enforced on the most expensive path.
+Recently mitigated:
 
-- The advice endpoint is the core cost center.
-- Query usage is tracked in the schema, but not clearly enforced in the
-  live advice request path.
-- This means free or underpaying users can still burn expensive compute.
-
-
-2. Subscription upgrading is still effectively dev-mode.
-
-- The subscription create endpoint directly upgrades a user tier.
-- Payment provider logic is not truly enforced yet.
-- If this is exposed publicly, your paid tier is not protected.
+- Advice quota is now enforced on the main advice endpoint.
+- Advice usage is now incremented after successful responses.
+- Direct subscription self-upgrade is disabled by default.
+- Signals UI now explicitly shows demo/degraded state.
+- Repeat escalation alert spam has been fixed.
 
 
-3. Auth design is too messy.
+Current Top 10 Remaining Issues
 
-- You currently have:
-  - NextAuth session
-  - Google ID token exposure to frontend JS
-  - separate backend JWT in localStorage
-- This increases security risk and creates more failure modes than needed.
+1. Auth design is still too messy.
 
-
-4. The product surface is not honest enough about what is live vs mock.
-
-- The dashboard is still largely mock.
-- The advice detail page is mock.
-- The signals page can silently fall back to fake data.
-- Users can easily believe they are seeing live intelligence when they are not.
+- You still have multiple auth layers and browser-visible token state.
+- This increases XSS risk and creates harder-to-debug session failures.
+- Recommendation:
+  Move to one server-owned auth model with httpOnly cookies and remove the
+  extra frontend-managed backend JWT.
 
 
-5. The online advice request is too heavy.
+2. The online advice request is still too heavy.
 
-- One query can trigger many agents, multiple LLM calls, live scrapers,
-  graph reads, risk processing, and persistence.
-- That is expensive, slow, and operationally fragile.
-
-
-6. LLM output handling is brittle.
-
-- Many request-path components do raw json.loads(...) on model output.
-- There is not enough schema validation, retry, repair, and fallback logic.
-- This creates runtime instability.
+- One advice request still pulls together too much synchronous work.
+- That means higher latency, higher cost, and more production fragility.
+- Recommendation:
+  Push more intelligence generation into background workers and keep the
+  online path focused on personalization, ranking, and explanation.
 
 
-7. Compliance posture is inconsistent.
+3. LLM output handling is still brittle.
 
-- Prompts often say "education only" and "not advice".
-- The final policy and UI still produce concrete actions and amounts.
-- The current system behavior is closer to advice than marketing copy admits.
-
-
-8. You are running two ingestion architectures at once.
-
-- Legacy scan path still exists.
-- Stream-based ingestion path also exists.
-- That means duplicated complexity and less operational clarity.
+- Core parts of the request path still depend on raw json.loads(...) from
+  model output.
+- A malformed model response can still break runtime behavior.
+- Recommendation:
+  Add schema validation, repair/retry logic, and structured failure logging
+  at every LLM boundary.
 
 
-9. Alerting logic likely causes repeat escalation alerts.
+4. Compliance posture is still inconsistent.
 
-- Thesis monitoring keeps escalated alerts in an "active" state.
-- That can re-trigger alerts across worker cycles.
-- Result: alert fatigue and lower trust.
+- The system still behaves closer to actionable advice than "education only".
+- Prompts, UI, policy output, and product messaging are not fully aligned.
+- Recommendation:
+  Decide the real product posture now and make the prompts, UI, copy, and
+  legal framing match that decision.
 
 
-10. Core canonical values are inconsistent.
+5. The product is still not fully honest about what is live versus mock.
 
-- Example: country is stored as "IN" in some places and "India" in others.
-- These inconsistencies become small bugs everywhere:
-  prompts, currency formatting, filtering, analytics, and API behavior.
+- Signals are now clearer, but dashboard and advice-detail surfaces are still
+  not fully real.
+- This can still damage trust if the UI looks more production-grade than the
+  data behind it.
+- Recommendation:
+  Remove, hide, or clearly label mock surfaces until they are backed by real
+  APIs and real state.
+
+
+6. Real payment integration is still incomplete.
+
+- Subscription self-upgrade is safer now, but this is still not a real paid
+  billing system.
+- Webhook verification and provider-driven entitlement changes are still not
+  complete.
+- Recommendation:
+  Finish Razorpay subscription creation, verify webhooks, and let payment
+  events drive tier changes.
+
+
+7. Abuse protection is still too thin around costly endpoints.
+
+- Quota enforcement exists now, but quota alone is not enough.
+- You still need rate limiting, burst control, audit logging, and cost caps.
+- Recommendation:
+  Add per-user and per-IP rate limits, request-cost telemetry, and alerting
+  for unusual usage patterns.
+
+
+8. Two ingestion architectures are still running at the same time.
+
+- The legacy path still exists beside the stream-based path.
+- That means extra complexity, duplicated logic, and weaker operations.
+- Recommendation:
+  Pick the target ingestion architecture and retire the older path quickly.
+
+
+9. Canonical values are still inconsistent across the stack.
+
+- Country, geography, stages, and similar enums are still not normalized
+  cleanly across frontend and backend.
+- These small inconsistencies turn into many small bugs.
+- Recommendation:
+  Introduce shared canonical enums and normalization rules across API, DB,
+  prompts, and frontend rendering.
+
+
+10. Demo-mode boundaries still need to be stricter.
+
+- Demo data is more visible now, but the platform still needs a stronger
+  separation between demo mode and real mode.
+- Recommendation:
+  Add an explicit environment-level demo switch and never let demo data be
+  mistaken for live portfolio intelligence, alerts, or paid features.
 
 
 Bottom line:
 
-The main risks are not "AI quality" first.
-The real risks are:
+The platform is safer than it was before this pass, but the biggest remaining
+risks are still:
 
-- trust
-- auth/security
-- billing enforcement
-- runtime cost/latency
+- auth/session design
+- runtime cost and latency
+- payment correctness
+- compliance clarity
 - product honesty
-
