@@ -297,20 +297,4 @@ Do not do these first:
 These are not the bottleneck right now.
 
 
-======================================================================
-FINAL VIEW
-======================================================================
-
-Right now the platform is ambitious and structurally promising.
-
-To make it real:
-
-- protect money
-- protect trust
-- simplify auth
-- reduce runtime complexity
-- stop pretending unfinished surfaces are live
-
-Once those are fixed, the rest of the architecture is good enough to
-become something serious.
 
