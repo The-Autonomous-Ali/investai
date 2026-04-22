@@ -121,7 +121,7 @@ function SignalDetail({ signal, onClose }) {
 }
 
 export default function SignalsPage() {
-  const { signals: SIGNALS, loading, isLive } = useSignals()
+  const { signals: SIGNALS, loading, isLive, degradedReason } = useSignals()
   const [selected, setSelected]   = useState(null)
   const [filter, setFilter]       = useState('all')
   const [expanded, setExpanded]   = useState({})
@@ -183,6 +183,12 @@ export default function SignalsPage() {
         </div>
 
         <div className="max-w-7xl mx-auto px-6 py-8">
+          {!isLive && degradedReason && (
+            <div className="mb-6 rounded-2xl border border-gold/20 bg-gold/10 px-4 py-3 text-sm text-gold">
+              {degradedReason}
+            </div>
+          )}
+
           {/* Filters */}
           <div className="flex items-center gap-2 mb-8">
             <Filter size={14} className="text-ink" />
@@ -204,7 +210,14 @@ export default function SignalsPage() {
           <div className={`grid gap-8 ${selected ? 'grid-cols-5' : 'grid-cols-1'}`}>
             {/* Signal list */}
             <div className={selected ? 'col-span-3' : 'col-span-1'}>
-              <div className="space-y-4">
+              {loading ? (
+                <div className="card p-6 text-sm text-ink">Loading signals...</div>
+              ) : filtered.length === 0 ? (
+                <div className="card p-6 text-sm text-ink">
+                  No live signals are available for the current filter.
+                </div>
+              ) : (
+                <div className="space-y-4">
                 {filtered.map((signal, i) => {
                   const urgency = URGENCY_CONFIG[signal.urgency]
                   const stage   = STAGE_CONFIG[signal.stage]
@@ -268,7 +281,8 @@ export default function SignalsPage() {
                     </motion.div>
                   )
                 })}
-              </div>
+                </div>
+              )}
             </div>
 
             {/* Signal detail panel */}

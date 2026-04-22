@@ -1,0 +1,316 @@
+InvestAI Recommended Roadmap
+Date: 2026-04-22
+
+Goal:
+Turn the current system from a strong prototype into a trustworthy,
+defensible production platform.
+
+
+======================================================================
+PHASE 1: HONESTY, SAFETY, AND MONEY
+Timeframe: immediate
+======================================================================
+
+1. Enforce entitlements before the advice pipeline starts.
+
+Implement:
+
+- per-tier advice quota check
+- usage increment logic
+- monthly reset behavior
+- rate limits per user
+- rate limits per IP
+
+Why first:
+
+- protects margins
+- prevents abuse
+- gives real meaning to pricing
+
+
+2. Remove dev-mode subscription upgrading.
+
+Implement:
+
+- real payment creation flow
+- verified webhook signature checks
+- tier activation only after validated payment event
+- downgrade / cancellation rules
+
+Why first:
+
+- without this, your monetization model is soft
+
+
+3. Make live vs mock states explicit.
+
+Implement:
+
+- no silent mock fallback on live-looking pages
+- explicit degraded mode banners
+- hide or remove unfinished pages from nav
+- label demo-only states aggressively
+
+Why first:
+
+- trust is easier to lose than to gain
+
+
+4. Simplify authentication.
+
+Move toward:
+
+- one source of truth for auth
+- secure cookie-based backend session
+- minimal browser-side token exposure
+- removal of long-lived backend JWT from localStorage
+
+Why first:
+
+- lowers security risk
+- reduces complexity
+- makes session debugging easier
+
+
+======================================================================
+PHASE 2: STABILIZE THE CORE ADVICE SYSTEM
+Timeframe: near-term
+======================================================================
+
+5. Harden every LLM boundary.
+
+Implement:
+
+- strict response schemas
+- validation before use
+- retry on malformed output
+- repair parsing
+- fallback model/provider behavior
+- structured telemetry for model failures
+
+Why:
+
+- raw json parsing is too fragile for production
+
+
+6. Reduce the amount of synchronous work in /api/agents/advice.
+
+Target model:
+
+Background:
+- ingest signals
+- classify signals
+- enrich graph
+- compute macro summaries
+- precompute sector intelligence
+
+Online:
+- load user profile
+- select relevant precomputed intelligence
+- personalize
+- deterministic decision layer
+- render
+
+Why:
+
+- lower latency
+- lower cost
+- fewer hard failures
+
+
+7. Consolidate ingestion into one architecture.
+
+Choose:
+
+- either legacy direct-scan path
+- or stream-based path
+
+Recommended:
+
+- keep the stream-based pipeline
+- gradually retire legacy path
+
+Why:
+
+- less duplicated complexity
+- easier observability
+- cleaner ownership
+
+
+8. Fix alert lifecycle logic.
+
+Implement:
+
+- dedupe keys
+- per-event cooldowns
+- "last alerted at" tracking
+- explicit escalation state transitions
+
+Why:
+
+- users stop trusting alerts when alerts repeat too often
+
+
+======================================================================
+PHASE 3: PRODUCT TRUTH AND EXPERIENCE
+Timeframe: after core stability
+======================================================================
+
+9. Ship only the surfaces backed by real data.
+
+Do:
+
+- make Invest page the primary experience
+- remove or rewrite dashboard until live-backed
+- replace advice mock page with real analysis detail page
+- build real portfolio and settings pages or hide links until ready
+
+Why:
+
+- product consistency matters more than feature count
+
+
+10. Normalize domain models.
+
+Standardize:
+
+- country codes
+- geography enums
+- signal stages
+- subscription tiers
+- instrument types
+
+Why:
+
+- prevents low-grade bugs everywhere
+
+
+11. Decide compliance posture explicitly.
+
+You need one of two models:
+
+Model A: Education / intelligence platform
+- insights
+- scenarios
+- evidence
+- monitoring
+- no direct action sizing or execution-like outputs
+
+Model B: Recommendation platform
+- concrete actions
+- suitability logic
+- explicit audit trail
+- stronger legal/compliance structure
+
+Why:
+
+- the code and product messaging currently sit in between
+
+
+======================================================================
+PHASE 4: DIFFERENTIATION
+Timeframe: after fundamentals are fixed
+======================================================================
+
+12. Double down on the real moat.
+
+Your moat is not "many agents".
+Your moat is:
+
+- signal provenance
+- causal chain tracking
+- advice memory
+- thesis invalidation monitoring
+- evidence-first presentation
+
+Invest in:
+
+- better signal quality scoring
+- better source provenance
+- clearer causal graph inspection
+- better thesis health UX
+
+
+13. Build performance feedback loops.
+
+Implement:
+
+- true advice outcome tracking
+- precision/recall style scoring on alerts
+- confidence calibration
+- user-level recommendation quality metrics
+
+Why:
+
+- without feedback loops, the system cannot mature properly
+
+
+14. Add observability for cost, latency, and failure.
+
+Track:
+
+- cost per advice request
+- latency by agent
+- failure rate by provider
+- malformed JSON rate
+- ingestion lag
+- signal freshness
+- alert volume
+
+Why:
+
+- complex systems become expensive and unstable if not measured
+
+
+======================================================================
+PRACTICAL PRIORITY ORDER
+======================================================================
+
+If I were running this project, I would do the work in this exact order:
+
+1. quota enforcement
+2. payment enforcement
+3. auth simplification
+4. kill silent mock fallbacks
+5. remove unfinished nav/pages from product surface
+6. LLM schema hardening
+7. advice-path slimming
+8. ingestion consolidation
+9. alert dedupe and lifecycle fix
+10. compliance/product-position decision
+11. rebuild dashboard on real data
+12. invest in moat features and feedback loops
+
+
+======================================================================
+WHAT NOT TO DO NEXT
+======================================================================
+
+Do not do these first:
+
+- add more agents
+- add more charts
+- add more premium tiers
+- add prettier marketing pages
+- add more signal sources before fixing trust and reliability
+
+These are not the bottleneck right now.
+
+
+======================================================================
+FINAL VIEW
+======================================================================
+
+Right now the platform is ambitious and structurally promising.
+
+To make it real:
+
+- protect money
+- protect trust
+- simplify auth
+- reduce runtime complexity
+- stop pretending unfinished surfaces are live
+
+Once those are fixed, the rest of the architecture is good enough to
+become something serious.
+

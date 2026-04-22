@@ -1,0 +1,884 @@
+InvestAI System Architecture Review
+Generated from codebase inspection
+Date: 2026-04-22
+
+======================================================================
+1. EXECUTIVE SUMMARY
+======================================================================
+
+This codebase has the shape of a serious platform:
+
+- Next.js frontend
+- FastAPI backend
+- Postgres as system of record
+- Redis for cache and ingestion stream
+- Neo4j for causal and knowledge graph relationships
+- background worker for ingestion and monitoring
+- multi-agent analysis pipeline
+- deterministic recommendation policy layer
+
+That is the good news.
+
+The bad news is that the platform is still halfway between prototype and
+production:
+
+- the live advice path is real
+- the auth flow is real
+- background ingestion is real
+- signal monitoring is real
+- but large parts of the product surface are still mock/demo
+- entitlement and billing enforcement are weak
+- the online advice path is too heavy
+- the LLM boundary is fragile
+- the product posture is not fully honest yet
+
+Brutal but fair conclusion:
+
+This is a strong prototype wearing production clothes.
+
+
+======================================================================
+2. HIGH-LEVEL ARCHITECTURE
+======================================================================
+
+2.1 Main runtime architecture
+
+    Users
+      |
+      v
+    Browser
+      |
+      v
+    Next.js frontend
+      - landing page
+      - Google sign-in via NextAuth
+      - onboarding
+      - invest page
+      - signals page
+      - dashboard page (mostly mock)
+      |
+      | HTTPS + Bearer JWT
+      v
+    FastAPI backend
+      - /api/auth
+      - /api/agents/advice
+      - /api/signals
+      - /api/portfolio
+      - /api/users
+      - /api/alerts
+      - /api/subscriptions
+      - /api/whatif
+      |
+      +--> Postgres
+      |    - users
+      |    - portfolio items
+      |    - signals
+      |    - advice records
+      |    - advice-to-signal links
+      |    - alerts
+      |    - subscriptions
+      |
+      +--> Redis
+      |    - cache
+      |    - signals.raw ingestion stream
+      |
+      +--> Neo4j
+      |    - root causes
+      |    - events
+      |    - sectors
+      |    - graph relationships
+      |
+      +--> external model/data providers
+           - Groq / OpenRouter / Anthropic / Gemini / Kaggle LLM
+           - market data scrapers
+           - Google token verification
+
+
+2.2 Separate background architecture
+
+    RSS / FRED / yfinance / feed connectors
+      |
+      v
+    background worker
+      |
+      +--> Redis stream ingestion
+      +--> signal extraction
+      +--> Postgres signal persistence
+      +--> Neo4j enrichment
+      +--> thesis monitoring
+      +--> alert generation
+      +--> lifecycle scoring jobs
+
+
+======================================================================
+3. DEPLOYMENT SHAPE
+======================================================================
+
+The docker-compose setup defines:
+
+- frontend container
+- backend container
+- postgres container
+- redis container
+- neo4j container
+- worker container
+
+Source: docker-compose.yml
+
+This is a reasonable developer deployment model.
+
+What it means in practice:
+
+- frontend serves UI and handles Google OAuth browser flow
+- backend exposes API and runs synchronous user request logic
+- worker runs scheduled and continuous background tasks
+- Postgres stores truth
+- Redis acts as stream and cache
+- Neo4j supports graph-like causal querying and enrichment
+
+
+======================================================================
+4. FRONTEND ARCHITECTURE
+======================================================================
+
+4.1 Frontend stack
+
+- Next.js pages router
+- NextAuth for Google login
+- Axios API client
+- session data from NextAuth
+- backend JWT stored in browser localStorage
+
+Key files:
+
+- frontend/pages/index.js
+- frontend/pages/auth/signin.js
+- frontend/pages/onboarding.js
+- frontend/pages/invest.js
+- frontend/pages/signals.js
+- frontend/pages/dashboard.js
+- frontend/pages/advice.js
+- frontend/lib/api.js
+- frontend/pages/api/auth/[...nextauth].js
+
+
+4.2 Frontend page reality check
+
+Actually live:
+
+- sign-in flow
+- onboarding flow
+- invest page calling live advice endpoint
+- signals page can call live backend
+
+Still partly fake or mock:
+
+- dashboard page uses large mock datasets
+- advice page is mock
+- signals page silently falls back to mock signals when backend fails
+- dashboard nav links to /portfolio and /settings even though those
+  pages are not present in frontend/pages
+
+
+4.3 Frontend auth model
+
+Current auth design:
+
+1. User logs in through NextAuth with Google
+2. NextAuth stores Google session
+3. Frontend gets Google ID token from session
+4. Frontend sends Google ID token to backend
+5. Backend verifies token with Google and issues its own JWT
+6. Frontend stores backend JWT in localStorage
+7. Axios attaches backend JWT on API requests
+
+This works, but it is not clean.
+
+Problems:
+
+- two overlapping auth layers
+- browser-visible backend JWT in localStorage
+- Google ID token flowing through browser JS
+- more room for state drift and auth bugs
+- larger XSS blast radius
+
+
+======================================================================
+5. BACKEND ARCHITECTURE
+======================================================================
+
+5.1 FastAPI composition
+
+Backend app wires these routers:
+
+- /api/auth
+- /api/users
+- /api/signals
+- /api/portfolio
+- /api/agents
+- /api/subscriptions
+- /api/alerts
+- /api/whatif
+
+Source: backend/main.py
+
+
+5.2 Backend startup behavior
+
+On startup the backend:
+
+- initializes DB schema
+- ensures a demo user exists
+- starts a scheduler stub
+
+The actual real scheduled jobs live in backend/worker.py, not in the
+FastAPI process.
+
+
+5.3 Core backend dependencies
+
+- Async SQLAlchemy sessions
+- JWT auth dependency
+- Redis client dependency
+- Neo4j driver created in request path for advice endpoint
+
+
+======================================================================
+6. DATA MODEL
+======================================================================
+
+6.1 Main tables
+
+users
+  - identity
+  - Google linkage
+  - profile
+  - subscription tier
+  - query counters
+
+portfolio_items
+  - holdings
+  - quantity, prices, sector
+  - active/inactive
+
+signals
+  - extracted market signals
+  - source, type, urgency, confidence
+  - sectors affected
+  - lifecycle and causal metadata
+
+advice_records
+  - query
+  - narrative
+  - confidence
+  - tax optimizations
+  - triggers
+  - reasoning chain
+  - market snapshot at advice time
+
+advice_signal_links
+  - which signals drove which advice
+  - how those signals change later
+
+user_alerts
+  - signal change alerts
+  - warning/urgent/info state
+
+subscriptions
+  - user tier record
+  - subscription period
+  - payment provider linkage
+
+There are also:
+
+- agent_performance
+- sector_prices
+- kg_edge_stats
+
+
+6.2 Data design quality
+
+Good:
+
+- advice history is persisted
+- signal provenance is persisted
+- alerts have structure
+- the "why did we tell the user this?" story exists in the schema
+
+Weakness:
+
+- business rule enforcement is not consistently attached to these models
+- some fields exist but are not reliably enforced in request handling
+
+
+======================================================================
+7. END-TO-END USER REQUEST FLOW
+======================================================================
+
+7.1 First visit
+
+1. User opens homepage.
+2. Next.js renders marketing/landing experience.
+3. User clicks sign in.
+
+
+7.2 Sign in
+
+1. User authenticates with Google through NextAuth.
+2. NextAuth callback stores Google session and ID token.
+3. Frontend sends Google ID token to backend POST /api/auth/login.
+4. Backend calls Google's tokeninfo endpoint.
+5. Backend checks token audience.
+6. Backend creates or updates user in Postgres.
+7. Backend returns its own JWT.
+8. Frontend stores that JWT in localStorage.
+
+
+7.3 Onboarding
+
+1. Frontend checks whether backend token exists.
+2. If missing, frontend exchanges the Google token for backend JWT.
+3. Frontend loads current user profile from backend.
+4. Frontend optionally updates user name/profile.
+5. User is redirected to /invest.
+
+
+7.4 Advice request
+
+This is the real core product path.
+
+1. User enters:
+   - query
+   - amount
+   - horizon
+   - country
+
+2. Frontend calls POST /api/agents/advice.
+
+3. Backend:
+   - authenticates backend JWT
+   - loads current user
+   - opens DB session
+   - opens Redis client
+   - opens Neo4j driver
+
+4. Orchestrator starts.
+
+5. Orchestrator loads memory:
+   - risk tolerance
+   - tax bracket
+   - avoid sectors
+   - preferred instruments
+   - holdings
+   - prior advice history
+
+6. Orchestrator fetches live/supporting context:
+   - FII/DII flows
+   - current signals
+   - market snapshot
+   - graph context from Neo4j
+
+7. Orchestrator asks an LLM to generate task plan JSON.
+
+8. Orchestrator executes agent graph:
+   - signal watcher
+   - global macro agent
+   - research agent
+   - pattern matcher
+   - temporal agent
+   - portfolio agent
+   - tax agent
+   - company intelligence
+   - adversarial agent
+   - sentiment aggregator
+   - investment manager
+
+9. Orchestrator then runs extra layers:
+   - causal chain assembly
+   - watchdog conflict check
+   - critic review
+   - market intelligence
+   - technical analysis
+   - risk engine
+   - plain language formatter
+
+10. Raw multi-agent output is assembled into final analysis package.
+
+11. Deterministic recommendation policy transforms that package into
+    the user-facing contract:
+   - action
+   - action strength
+   - summary
+   - thesis
+   - confidence
+   - recommended moves
+   - suitability checks
+   - key risks
+   - watch items
+   - invalidation triggers
+   - known limits
+
+12. Backend persists:
+   - advice record
+   - signal links attached to that advice
+
+13. JSON response returns to frontend.
+
+14. Invest page renders final recommendation.
+
+
+======================================================================
+8. BACKGROUND INGESTION FLOW
+======================================================================
+
+There are effectively two ingestion systems in play right now.
+
+8.1 Legacy path
+
+- worker runs SignalWatcherAgent.scan_all_sources()
+- RSS feeds are scanned directly
+- content is classified
+- signals are persisted
+
+8.2 New stream-based path
+
+- connectors push raw feed items into Redis stream signals.raw
+- SignalExtractor reads stream consumer-group style
+- SignalExtractor sends prompt to LLM
+- extracted structured signal is inserted into Postgres
+- optional graph enrichment follows
+
+This duality increases complexity.
+
+
+======================================================================
+9. THESIS MONITORING FLOW
+======================================================================
+
+This is one of the genuinely differentiated parts of the system.
+
+Flow:
+
+1. Advice is generated.
+2. Driving signals are snapshotted into advice_signal_links.
+3. Worker periodically checks current signal state against advice-time
+   snapshot.
+4. If signal weakens, resolves, or changes enough:
+   - update advice_signal_link
+   - create user alert
+
+This is good product thinking.
+
+It makes the system more than a one-shot answer engine.
+
+
+======================================================================
+10. WHAT IS GENUINELY GOOD HERE
+======================================================================
+
+10.1 Architecture direction is correct
+
+You did not build "just a chatbot". You built:
+
+- online request path
+- offline ingestion path
+- persistent memory
+- signal provenance
+- follow-up monitoring
+- structured recommendation layer
+
+That is the right direction.
+
+
+10.2 Deterministic policy layer is smart
+
+The RecommendationPolicy is a real strength.
+
+Instead of letting a free-form LLM directly tell the user what to do,
+you convert the analysis into a canonical contract with action,
+confidence, suitability checks, and limits.
+
+That is much better than raw prompt-output finance advice.
+
+
+10.3 Advice-to-signal linkage is excellent product thinking
+
+Most AI financial products stop at "here is the answer."
+This system at least attempts:
+
+- here is the answer
+- here is why
+- here is what invalidates it
+- here is how we know when it changed
+
+That is valuable.
+
+
+======================================================================
+11. BRUTAL ASSESSMENT OF THE WEAK SPOTS
+======================================================================
+
+11.1 Billing and entitlement are not real enough
+
+Problem:
+
+- subscription create endpoint upgrades users directly in dev mode
+- payment webhook does not actually implement verified production flow
+- query usage exists in schema but is not enforced where it matters most
+
+Meaning:
+
+Your paid business model is weakly protected right now.
+
+Impact:
+
+- users can upgrade too easily
+- free users can likely overuse expensive compute path
+- COGS can get hit before revenue guardrails exist
+
+
+11.2 Auth model is too messy
+
+Problem:
+
+- NextAuth session
+- Google ID token in frontend session
+- backend JWT in localStorage
+- backend JWT fallback secret is dangerous if env setup slips
+
+Meaning:
+
+You have more auth states than you need.
+
+Impact:
+
+- bugs
+- weaker security posture
+- harder debugging
+- larger XSS exposure
+
+
+11.3 The online request path is too heavy
+
+Problem:
+
+One user advice request can trigger many agents, LLM calls, live fetches,
+graph reads, post-processing, and persistence.
+
+Meaning:
+
+You are doing prototype-grade richness on the hot path.
+
+Impact:
+
+- latency will be high
+- failure rate will rise
+- cost per query will be high
+- debugging becomes painful
+- concurrency scaling will be ugly
+
+
+11.4 Product honesty gap
+
+Problem:
+
+Dashboard and advice pages look like productized surfaces, but many parts
+are mock. Signals silently degrade to mock mode.
+
+Meaning:
+
+The app can look more real than it is.
+
+Impact:
+
+- user trust damage
+- team self-deception
+- impossible to measure true product health
+
+
+11.5 LLM output handling is too brittle
+
+Problem:
+
+Many critical components do raw json.loads(text) directly on model output.
+
+Meaning:
+
+A malformed model response can break important flows.
+
+Impact:
+
+- runtime failures
+- hard-to-reproduce bugs
+- weak resilience under provider drift
+
+
+11.6 Compliance posture is inconsistent
+
+Problem:
+
+Some prompts say "education only" and "do not recommend", but the final
+policy plus frontend absolutely produce actionable outputs, sizing, deploy
+amounts, and concrete actions.
+
+Meaning:
+
+The product posture is internally inconsistent.
+
+Impact:
+
+- legal/compliance risk
+- messaging confusion
+- architecture not aligned with commercial intent
+
+
+11.7 Ingestion architecture is not consolidated
+
+Problem:
+
+Legacy scan path and stream path run side by side.
+
+Meaning:
+
+The system is carrying migration complexity in production shape.
+
+Impact:
+
+- duplicated logic
+- duplicate operational cost
+- unclear source of truth
+
+
+11.8 Re-alert logic likely repeats escalation alerts
+
+Problem:
+
+Signal monitor only scans links with current_status == "active".
+Escalation alerts keep status as "active".
+
+Meaning:
+
+The same escalated signal may trigger repeatedly.
+
+Impact:
+
+- alert spam
+- user fatigue
+- degraded trust in notifications
+
+
+======================================================================
+12. WHAT IS REAL VS WHAT IS STILL FAKE
+======================================================================
+
+12.1 Real
+
+- backend auth exchange
+- backend JWT auth dependency
+- advice endpoint
+- memory loading
+- signal persistence
+- worker scheduling
+- ingestion stream consumer
+- thesis monitoring
+- alert persistence
+
+12.2 Fake or partially fake
+
+- dashboard main numbers
+- dashboard portfolio charts
+- dashboard "ask AI" widget
+- advice details page
+- some live feeling in signals page when backend is absent
+- navigation to nonexistent pages
+
+
+======================================================================
+13. TOP 10 ISSUES IN PRIORITY ORDER
+======================================================================
+
+1. No hard entitlement enforcement on expensive advice endpoint.
+2. Dev-mode self-upgrade subscription path.
+3. Dual-session auth design with localStorage JWT.
+4. Mock UI mixed with live UI without strong boundary.
+5. Too much synchronous orchestration in one advice request.
+6. Fragile LLM JSON parsing strategy.
+7. Compliance position not aligned with product behavior.
+8. Duplicate ingestion architecture.
+9. Likely repeated signal escalation alerts.
+10. Inconsistent canonical values such as country strings.
+
+
+======================================================================
+14. HOW I WOULD IMPROVE THE PLATFORM
+======================================================================
+
+14.1 First priority: honesty and trust
+
+Do this first:
+
+- remove silent mock fallback on any page claiming live intelligence
+- show explicit "live unavailable" state
+- remove nav links for pages not shipped
+- label demo-only areas bluntly
+
+
+14.2 Second priority: security and money
+
+Do this next:
+
+- enforce per-tier quota before advice pipeline starts
+- increment usage atomically on successful or billable request
+- add rate limiting per user and per IP
+- remove dev-mode upgrade behavior before public release
+- implement proper payment verification
+
+
+14.3 Third priority: simplify auth
+
+Recommended target state:
+
+- NextAuth or backend session should be source of truth, not both
+- use httpOnly secure cookies
+- do not keep long-lived backend auth token in localStorage
+- keep browser JS away from sensitive auth state as much as possible
+
+
+14.4 Fourth priority: make advice pipeline production-shaped
+
+Recommended redesign:
+
+Background layer:
+- ingest signals
+- classify signals
+- score signals
+- enrich graph
+- precompute sector and macro intelligence
+
+Online layer:
+- load user profile and holdings
+- select relevant precomputed intelligence
+- run lightweight personalization
+- run deterministic policy
+- render response
+
+This reduces latency, cost, and failure surface dramatically.
+
+
+14.5 Fifth priority: harden LLM contracts
+
+Add:
+
+- Pydantic or strict schema validation
+- retry on malformed JSON
+- repair parser
+- fallback model path
+- telemetry for invalid outputs
+- confidence and source tagging
+
+
+14.6 Sixth priority: choose your compliance posture
+
+You need to make a hard choice:
+
+Option A:
+Educational intelligence platform.
+Then stop returning direct deploy amounts and action labels that read like
+advice execution.
+
+Option B:
+Action-oriented recommendation platform.
+Then build compliance, auditability, and legal structure for that reality.
+
+Right now the code tries to do both.
+
+
+======================================================================
+15. MY HONEST PRODUCT READ
+======================================================================
+
+What you are trying to build is more ambitious than most retail finance AI
+projects, and that is good.
+
+The strongest part is not the number of agents.
+The strongest part is:
+
+- tracked reasoning
+- persistent advice
+- signal linkage
+- invalidation tracking
+
+That is the part worth protecting.
+
+What is weakest is:
+
+- product honesty
+- auth and entitlement rigor
+- runtime complexity
+
+If you fix those, the platform can become real.
+If you do not fix those, it will remain a convincing prototype that is
+hard to trust in production.
+
+
+======================================================================
+16. BOTTOM LINE
+======================================================================
+
+Short version:
+
+- The direction is strong.
+- The architecture is mostly the right shape.
+- The execution is uneven.
+- The platform is not ready to be treated as a finished production
+  investment intelligence product.
+
+Most important truth:
+
+The biggest risk is not model quality.
+The biggest risk is the gap between how mature the product looks and how
+mature the underlying system actually is.
+
+
+======================================================================
+17. KEY FILE REFERENCES
+======================================================================
+
+Backend entry:
+- backend/main.py
+
+Advice endpoint:
+- backend/routes/agents.py
+
+Auth:
+- backend/routes/auth.py
+- backend/utils/auth.py
+- frontend/pages/api/auth/[...nextauth].js
+- frontend/lib/api.js
+
+Orchestrator:
+- backend/agents/orchestrator.py
+
+Recommendation policy:
+- backend/services/recommendation_policy.py
+
+Worker and ingestion:
+- backend/worker.py
+- backend/ingestion/signal_extractor.py
+- backend/ingestion/feed_registry.py
+
+Signal monitor:
+- backend/services/signal_monitor.py
+
+Data model:
+- backend/models/models.py
+
+Frontend real path:
+- frontend/pages/onboarding.js
+- frontend/pages/invest.js
+- frontend/pages/signals.js
+
+Frontend mock-heavy path:
+- frontend/pages/dashboard.js
+- frontend/pages/advice.js
+

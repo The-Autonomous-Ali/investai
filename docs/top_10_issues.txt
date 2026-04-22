@@ -1,0 +1,88 @@
+InvestAI Top 10 Issues
+Date: 2026-04-22
+
+1. Entitlement is not enforced on the most expensive path.
+
+- The advice endpoint is the core cost center.
+- Query usage is tracked in the schema, but not clearly enforced in the
+  live advice request path.
+- This means free or underpaying users can still burn expensive compute.
+
+
+2. Subscription upgrading is still effectively dev-mode.
+
+- The subscription create endpoint directly upgrades a user tier.
+- Payment provider logic is not truly enforced yet.
+- If this is exposed publicly, your paid tier is not protected.
+
+
+3. Auth design is too messy.
+
+- You currently have:
+  - NextAuth session
+  - Google ID token exposure to frontend JS
+  - separate backend JWT in localStorage
+- This increases security risk and creates more failure modes than needed.
+
+
+4. The product surface is not honest enough about what is live vs mock.
+
+- The dashboard is still largely mock.
+- The advice detail page is mock.
+- The signals page can silently fall back to fake data.
+- Users can easily believe they are seeing live intelligence when they are not.
+
+
+5. The online advice request is too heavy.
+
+- One query can trigger many agents, multiple LLM calls, live scrapers,
+  graph reads, risk processing, and persistence.
+- That is expensive, slow, and operationally fragile.
+
+
+6. LLM output handling is brittle.
+
+- Many request-path components do raw json.loads(...) on model output.
+- There is not enough schema validation, retry, repair, and fallback logic.
+- This creates runtime instability.
+
+
+7. Compliance posture is inconsistent.
+
+- Prompts often say "education only" and "not advice".
+- The final policy and UI still produce concrete actions and amounts.
+- The current system behavior is closer to advice than marketing copy admits.
+
+
+8. You are running two ingestion architectures at once.
+
+- Legacy scan path still exists.
+- Stream-based ingestion path also exists.
+- That means duplicated complexity and less operational clarity.
+
+
+9. Alerting logic likely causes repeat escalation alerts.
+
+- Thesis monitoring keeps escalated alerts in an "active" state.
+- That can re-trigger alerts across worker cycles.
+- Result: alert fatigue and lower trust.
+
+
+10. Core canonical values are inconsistent.
+
+- Example: country is stored as "IN" in some places and "India" in others.
+- These inconsistencies become small bugs everywhere:
+  prompts, currency formatting, filtering, analytics, and API behavior.
+
+
+Bottom line:
+
+The main risks are not "AI quality" first.
+The real risks are:
+
+- trust
+- auth/security
+- billing enforcement
+- runtime cost/latency
+- product honesty
+

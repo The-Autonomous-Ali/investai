@@ -1,35 +1,36 @@
 """
-Subscription routes — manage tier upgrades and Razorpay integration.
-
-Tier limits are enforced across the app:
-- Free: 3 queries/month, 5 portfolio items, no memory
-- Starter: 30 queries/month, unlimited portfolio, 3 month memory
-- Pro: Unlimited queries, all sources, real-time alerts
-- Elite: Everything + LinkedIn signals + API access
+Subscription routes for plan details, upgrades, and payment-webhook handling.
 """
-from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from pydantic import BaseModel
-from typing import Optional
+
+import os
 from datetime import datetime, timedelta, timezone
 
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from database.connection import get_db
-from models.models import User, Subscription, SubscriptionTier
+from models.models import Subscription, SubscriptionTier, User
 from utils.auth import get_current_user
 
 router = APIRouter()
 
 # Monthly prices in paise (Razorpay uses paise, not rupees)
 TIER_PRICES = {
-    "starter": 99900,   # ₹999
-    "pro": 209900,      # ₹2,099
-    "elite": 419900,    # ₹4,199
+    "starter": 99900,
+    "pro": 209900,
+    "elite": 419900,
 }
 
 
 class CreateSubscriptionRequest(BaseModel):
     tier: str  # starter, pro, elite
+
+
+def _dev_bypass_enabled() -> bool:
+    value = os.getenv("ALLOW_DEV_SUBSCRIPTION_BYPASS", "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 @router.get("/current")
@@ -47,8 +48,12 @@ async def get_current_subscription(
 
     return {
         "tier": tier,
-        "status": sub.status if sub else "active",  # free is always active
-        "current_period_end": sub.current_period_end.isoformat() if sub and sub.current_period_end else None,
+        "status": sub.status if sub else "active",
+        "current_period_end": (
+            sub.current_period_end.isoformat()
+            if sub and sub.current_period_end
+            else None
+        ),
         "razorpay_sub_id": sub.razorpay_sub_id if sub else None,
         "features": _get_tier_features(tier),
     }
@@ -62,21 +67,21 @@ async def list_plans():
             {
                 "tier": "free",
                 "price": 0,
-                "price_display": "₹0",
+                "price_display": "Rs0",
                 "period": "forever",
                 "features": _get_tier_features("free"),
             },
             {
                 "tier": "starter",
                 "price": 999,
-                "price_display": "₹999",
+                "price_display": "Rs999",
                 "period": "month",
                 "features": _get_tier_features("starter"),
             },
             {
                 "tier": "pro",
                 "price": 2099,
-                "price_display": "₹2,099",
+                "price_display": "Rs2,099",
                 "period": "month",
                 "features": _get_tier_features("pro"),
                 "popular": True,
@@ -84,7 +89,7 @@ async def list_plans():
             {
                 "tier": "elite",
                 "price": 4199,
-                "price_display": "₹4,199",
+                "price_display": "Rs4,199",
                 "period": "month",
                 "features": _get_tier_features("elite"),
             },
@@ -100,26 +105,36 @@ async def create_subscription(
 ):
     """
     Initiate a subscription upgrade.
-    In production, this creates a Razorpay subscription and returns the payment link.
-    For now, it directly upgrades the tier (dev mode).
+
+    In production, this should create a Razorpay subscription and return the
+    payment link. Direct self-upgrades are disabled by default until verified
+    payment integration is configured. Local development can opt in with
+    ALLOW_DEV_SUBSCRIPTION_BYPASS=true.
     """
     if body.tier not in TIER_PRICES:
-        raise HTTPException(status_code=400, detail=f"Invalid tier. Choose: {', '.join(TIER_PRICES.keys())}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid tier. Choose: {', '.join(TIER_PRICES.keys())}",
+        )
 
-    # TODO: In production, create Razorpay subscription here
-    # razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
-    # subscription = razorpay_client.subscription.create({...})
+    if not _dev_bypass_enabled():
+        raise HTTPException(
+            status_code=501,
+            detail=(
+                "Direct subscription upgrades are disabled until payment "
+                "provider integration is configured. Set "
+                "ALLOW_DEV_SUBSCRIPTION_BYPASS=true only in local development."
+            ),
+        )
 
-    # Dev mode: directly upgrade
     try:
         new_tier = SubscriptionTier(body.tier)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid tier")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid tier") from exc
 
     user.subscription_tier = new_tier
     now = datetime.now(timezone.utc)
 
-    # Create or update subscription record
     result = await db.execute(select(Subscription).where(Subscription.user_id == user.id))
     sub = result.scalar_one_or_none()
 
@@ -138,7 +153,6 @@ async def create_subscription(
         )
         db.add(sub)
 
-    # Reset query count on upgrade
     user.queries_used_this_month = 0
     user.queries_reset_date = now + timedelta(days=30)
 
@@ -147,27 +161,25 @@ async def create_subscription(
     return {
         "status": "active",
         "tier": body.tier,
-        "message": f"Upgraded to {body.tier}. Dev mode — no payment required.",
+        "message": f"Upgraded to {body.tier}. Explicit local dev bypass is enabled.",
     }
 
 
 @router.post("/webhook/razorpay")
 async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     """
-    Razorpay webhook handler — called by Razorpay on payment events.
+    Razorpay webhook handler.
+
     TODO: Verify webhook signature in production.
     """
     body = await request.json()
     event = body.get("event", "")
 
     if event == "subscription.activated":
-        # Payment successful — activate subscription
         pass
     elif event == "subscription.cancelled":
-        # User cancelled — downgrade at period end
         pass
     elif event == "payment.failed":
-        # Payment failed — notify user
         pass
 
     return {"status": "ok"}

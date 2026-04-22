@@ -354,7 +354,7 @@ class AdviceSignalLink(Base):
     sectors_affected    = Column(JSON, default=dict) # sectors_affected snapshot
 
     # Current tracking
-    current_status      = Column(String, default="active")  # active, weakened, reversed, resolved
+    current_status      = Column(String, default="active")  # active, escalated, weakened, reversed, resolved
     change_detected_at  = Column(DateTime)
     change_description  = Column(Text)
 

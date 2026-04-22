@@ -9,6 +9,7 @@ from database.connection import get_db
 from agents.agents_impl import MemoryAgent
 from agents.orchestrator import OrchestratorAgent
 from models.models import User
+from services.entitlements import consume_advice_quota, ensure_advice_quota
 from services.recommendation_policy import RecommendationPolicy
 from utils.auth import get_current_user
 import redis.asyncio as aioredis
@@ -58,6 +59,7 @@ async def get_investment_advice(
     Main advice endpoint. Runs the full multi-agent pipeline.
     Returns personalized investment recommendation.
     """
+    ensure_advice_quota(user)
     neo4j = get_neo4j()
     try:
         orchestrator = OrchestratorAgent(db, redis, neo4j)
@@ -82,6 +84,8 @@ async def get_investment_advice(
             )
             result.setdefault("meta", {})
             result["meta"]["policy_version"] = result["recommendation"]["policy_version"]
+            result["meta"]["usage"] = consume_advice_quota(user)
+            await db.commit()
         return AdviceResponse(**result)
     finally:
         await neo4j.close()
