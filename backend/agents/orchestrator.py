@@ -343,6 +343,12 @@ class OrchestratorAgent:
                 log.warning("orchestrator.signal_links_failed", error=str(e))
 
             elapsed = round(time.time() - start_time, 2)
+            degraded = [
+                name for name, out in state["agent_outputs"].items()
+                if isinstance(out, dict) and "error" in out
+            ]
+            if degraded:
+                log.warning("orchestrator.degraded", failed_agents=degraded)
             log.info("orchestrator.complete", elapsed_s=elapsed)
 
             return {
@@ -351,6 +357,7 @@ class OrchestratorAgent:
                 "meta": {
                     "elapsed_seconds":    elapsed,
                     "agents_used":        list(state["agent_outputs"].keys()),
+                    "degraded_components": degraded,
                     "conflicts_detected": len(conflicts),
                     "critic_verdict":     critic_result.get("verdict", "PASS"),
                 }

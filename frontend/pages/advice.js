@@ -38,7 +38,31 @@ function mapRecommendation(rec) {
     policy_version: rec.policy_version,
     review_date: rec.review_date,
     known_limits: rec.known_limits || [],
+    degraded_components: rec.degraded_components || [],
   }
+}
+
+const AGENT_LABELS = {
+  signal_watcher:     'Signal monitor',
+  global_macro:       'Global macro',
+  research_agent:     'Research deep-dive',
+  pattern_matcher:    'Historical pattern matcher',
+  temporal_agent:     'Event lifecycle',
+  company_intelligence: 'Company intelligence',
+  adversarial_agent:  'Bull/bear stress test',
+  sentiment_aggregator: 'Sentiment',
+  portfolio_agent:    'Portfolio builder',
+  tax_agent:          'Tax optimizer',
+  investment_manager: 'Investment manager',
+  critic_agent:       'Critic',
+  risk_engine:        'Risk engine',
+  technical_analysis: 'Technical analysis',
+  market_intelligence: 'Market intelligence',
+  causal_chain:       'Causal chain builder',
+}
+
+function labelAgent(name) {
+  return AGENT_LABELS[name] || name.replace(/_/g, ' ')
 }
 
 function friendlyError(err) {
@@ -108,8 +132,8 @@ export default function AdvicePage() {
         <div className="sticky top-0 z-50 border-b border-white/5 bg-surface/90 backdrop-blur-md">
           <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <Link href="/dashboard" className="text-ink hover:text-white flex items-center gap-1 text-sm">
-                <ArrowLeft size={14} /> Dashboard
+              <Link href="/invest" className="text-ink hover:text-white flex items-center gap-1 text-sm">
+                <ArrowLeft size={14} /> Back
               </Link>
               <span className="text-ink/30">/</span>
               <span className="text-white font-medium text-sm">Investment Analysis</span>
@@ -218,6 +242,33 @@ export default function AdvicePage() {
           {/* Analysis view */}
           {hasAnalysis && (
             <>
+              {/* Degraded-components banner (some agents failed) */}
+              {advice.degraded_components.length > 0 && (
+                <div className="card border-orange-400/30 bg-orange-400/5 p-4 mb-6 flex items-start gap-3">
+                  <AlertTriangle size={16} className="text-orange-400 flex-shrink-0 mt-0.5" />
+                  <div className="text-sm">
+                    <div className="text-orange-400 font-semibold mb-1">
+                      Partial analysis — {advice.degraded_components.length} component
+                      {advice.degraded_components.length > 1 ? 's' : ''} unavailable
+                    </div>
+                    <div className="text-ink text-xs mb-2">
+                      The following analysis steps could not complete. Treat the recommendation
+                      below as partial evidence and consider re-running later.
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {advice.degraded_components.map((name) => (
+                        <span
+                          key={name}
+                          className="text-xs text-orange-300 bg-orange-400/10 border border-orange-400/20 px-2 py-0.5 rounded"
+                        >
+                          {labelAgent(name)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Summary header */}
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
                 <div className="card-gold p-6">

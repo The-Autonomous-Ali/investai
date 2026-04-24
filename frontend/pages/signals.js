@@ -161,7 +161,7 @@ export default function SignalsPage() {
         <div className="sticky top-0 z-50 border-b border-white/5 bg-surface/90 backdrop-blur-md">
           <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <Link href="/dashboard" className="flex items-center gap-2">
+              <Link href="/invest" className="flex items-center gap-2">
                 <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-gold to-gold-dark flex items-center justify-center">
                   <TrendingUp size={14} className="text-surface" />
                 </div>

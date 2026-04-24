@@ -96,6 +96,9 @@ async def get_investment_advice(
             result.setdefault("meta", {})
             result["meta"]["policy_version"] = result["recommendation"]["policy_version"]
             result["meta"]["usage"] = consume_advice_quota(user)
+            degraded = result["meta"].get("degraded_components") or []
+            if degraded:
+                result["recommendation"]["degraded_components"] = degraded
             await db.commit()
         return AdviceResponse(**result)
     finally:
