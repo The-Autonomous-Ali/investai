@@ -122,15 +122,23 @@ export default function InvestPage() {
       }
 
       try {
-        const existingToken = localStorage.getItem('investai_token')
-        if (!existingToken) {
+        let currentUser
+        try {
+          currentUser = await getCurrentUser()
+        } catch (err) {
+          if (err?.response?.status !== 401) throw err
           if (!session?.idToken) {
             throw new Error('Missing Google ID token for backend login.')
           }
-          await loginWithGoogle(session.idToken)
+          const inviteCode = typeof window !== 'undefined'
+            ? sessionStorage.getItem('investai_invite_code')
+            : null
+          await loginWithGoogle(session.idToken, inviteCode)
+          if (typeof window !== 'undefined') {
+            sessionStorage.removeItem('investai_invite_code')
+          }
+          currentUser = await getCurrentUser()
         }
-
-        const currentUser = await getCurrentUser()
         if (cancelled) return
 
         const displayName =

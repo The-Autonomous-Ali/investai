@@ -37,15 +37,22 @@ export default function Onboarding() {
   }, [router, session, status])
 
   const ensureBackendSession = async () => {
-    const existingToken = localStorage.getItem('investai_token')
-    if (!existingToken) {
+    try {
+      return await getCurrentUser()
+    } catch (err) {
+      if (err?.response?.status !== 401) throw err
       if (!session?.idToken) {
         throw new Error('Google sign-in did not provide a usable ID token.')
       }
-      await loginWithGoogle(session.idToken)
+      const inviteCode = typeof window !== 'undefined'
+        ? sessionStorage.getItem('investai_invite_code')
+        : null
+      await loginWithGoogle(session.idToken, inviteCode)
+      if (typeof window !== 'undefined') {
+        sessionStorage.removeItem('investai_invite_code')
+      }
+      return getCurrentUser()
     }
-
-    return getCurrentUser()
   }
 
   const handleCreateAccount = async (e) => {

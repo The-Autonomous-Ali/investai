@@ -1,4 +1,4 @@
-﻿import Head from "next/head"
+import Head from "next/head"
 import { signIn, getSession } from "next-auth/react"
 import { useRouter } from "next/router"
 import { useState, useEffect } from "react"
@@ -10,19 +10,37 @@ export async function getServerSideProps(ctx) {
   return { props: {} }
 }
 
+const INVITE_GATE_ON = process.env.NEXT_PUBLIC_BETA_INVITE_ONLY === "true"
+
 export default function SignIn() {
   const [loading, setLoading] = useState(false)
   const [demoLoading, setDemoLoading] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [inviteCode, setInviteCode] = useState("")
+  const [inviteError, setInviteError] = useState("")
   const router = useRouter()
   useEffect(() => { setMounted(true) }, [])
-  const handleGoogleSignIn = async () => { setLoading(true); await signIn("google", { callbackUrl: "/onboarding" }) }
-  const handleDemoSignIn = () => { 
-    setDemoLoading(true); 
-    sessionStorage.setItem("demo_mode","true"); 
-    sessionStorage.setItem("demo_user", JSON.stringify({name:"Demo User",email:"demo@investai.in",plan:"pro"})); 
-    router.push("/onboarding") 
+
+  const handleGoogleSignIn = async () => {
+    if (INVITE_GATE_ON && !inviteCode.trim()) {
+      setInviteError("Invite code is required during the private beta.")
+      return
+    }
+    setInviteError("")
+    setLoading(true)
+    if (INVITE_GATE_ON) {
+      sessionStorage.setItem("investai_invite_code", inviteCode.trim())
+    }
+    await signIn("google", { callbackUrl: "/onboarding" })
   }
+
+  const handleDemoSignIn = () => {
+    setDemoLoading(true)
+    sessionStorage.setItem("demo_mode", "true")
+    sessionStorage.setItem("demo_user", JSON.stringify({ name: "Demo User", email: "demo@investai.in", plan: "pro" }))
+    router.push("/onboarding")
+  }
+
   if (!mounted) return null
   return (
     <>
@@ -33,6 +51,22 @@ export default function SignIn() {
             <h1 className="font-display font-bold text-3xl text-white mb-2">Welcome back</h1>
             <p className="text-ink">Sign in to your investment intelligence dashboard</p>
           </div>
+
+          {INVITE_GATE_ON && (
+            <div className="mb-6">
+              <label className="block text-ink text-sm font-medium mb-2">Beta Invite Code</label>
+              <input
+                type="text"
+                className="input-dark w-full px-4 py-3 rounded-xl"
+                placeholder="Enter your invite code"
+                value={inviteCode}
+                onChange={(e) => { setInviteCode(e.target.value); setInviteError("") }}
+              />
+              {inviteError && <p className="text-ruby text-xs mt-2">{inviteError}</p>}
+              <p className="text-xs text-ink-light mt-2">InvestAI is in private beta — request access from the landing page.</p>
+            </div>
+          )}
+
           <button onClick={handleDemoSignIn} disabled={demoLoading} className="w-full flex items-center justify-center gap-3 py-4 rounded-xl border-2 border-gold/40 bg-gold/10 text-gold font-semibold hover:bg-gold/20 transition-all mb-3">
             <Zap size={18} />{demoLoading ? "Loading..." : "Continue as Demo UI Only"}
           </button>

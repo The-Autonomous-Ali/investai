@@ -5,27 +5,14 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 const api = axios.create({
   baseURL: API_URL,
   headers: { 'Content-Type': 'application/json' },
+  withCredentials: true,
 })
 
-// ── Auth token interceptor ──────────────────────────────────────────────────
-// Automatically attach JWT to every request if user is logged in
-api.interceptors.request.use((config) => {
-  if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('investai_token')
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`
-    }
-  }
-  return config
-})
-
-// Handle 401 responses — redirect to login
+// Handle 401 responses — redirect to sign-in
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401 && typeof window !== 'undefined') {
-      localStorage.removeItem('investai_token')
-      // Don't redirect if already on auth pages
       if (!window.location.pathname.startsWith('/auth')) {
         window.location.href = '/auth/signin'
       }
@@ -35,12 +22,11 @@ api.interceptors.response.use(
 )
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
-export const loginWithGoogle = (idToken) =>
-  api.post('/api/auth/login', { id_token: idToken }).then(r => {
-    // Store JWT for future requests
-    localStorage.setItem('investai_token', r.data.access_token)
-    return r.data
-  })
+export const loginWithGoogle = (idToken, inviteCode = null) =>
+  api.post('/api/auth/login', { id_token: idToken, invite_code: inviteCode }).then(r => r.data)
+
+export const logout = () =>
+  api.post('/api/auth/logout').then(r => r.data)
 
 export const getCurrentUser = () =>
   api.get('/api/auth/me').then(r => r.data)

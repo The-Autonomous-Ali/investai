@@ -1,25 +1,34 @@
 """
-Auth routes — Google OAuth token verification + JWT issuance.
+Auth routes — Google OAuth token verification + JWT issuance via httpOnly cookie.
 
 Flow:
 1. Frontend signs in via NextAuth (Google OAuth)
 2. Frontend sends the Google ID token to POST /api/auth/login
 3. We verify the token with Google, create/update the user in DB
-4. Return a JWT that the frontend uses for all subsequent API calls
+4. Issue a JWT and set it in an httpOnly, Secure, SameSite=strict cookie.
+   Subsequent calls authenticate via the cookie automatically.
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+import os
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
-from datetime import datetime, timezone
 import httpx
-import os
 
 from database.connection import get_db
 from models.models import User
-from utils.auth import get_current_user, create_access_token
+from utils.auth import COOKIE_NAME, create_access_token, get_current_user
 
 router = APIRouter()
+
+COOKIE_MAX_AGE = 30 * 24 * 60 * 60  # 30 days, must match ACCESS_TOKEN_EXPIRE_DAYS
+
+# Cookie security: in production we want Secure + SameSite=strict; in local dev
+# without HTTPS the browser drops Secure cookies on http://localhost, so allow
+# an opt-out via INSECURE_COOKIES=true for local testing.
+_INSECURE_COOKIES = os.getenv("INSECURE_COOKIES", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 # ── Request/Response schemas ─────────────────────────────────────────────────
@@ -27,13 +36,30 @@ router = APIRouter()
 class GoogleLoginRequest(BaseModel):
     """Frontend sends the Google ID token after NextAuth sign-in."""
     id_token: str
+    invite_code: str | None = None
 
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
+
+class LoginResponse(BaseModel):
     user_id: str
     name: str | None
     email: str
+
+
+# ── Soft-launch invite gate ──────────────────────────────────────────────────
+
+VALID_INVITE_CODES = {"early2026", "investai-beta"}
+
+
+def _invite_required() -> bool:
+    return os.getenv("BETA_INVITE_ONLY", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _verify_invite(code: str | None) -> bool:
+    if not _invite_required():
+        return True
+    if not code:
+        return False
+    return code.strip().lower() in {c.lower() for c in VALID_INVITE_CODES}
 
 
 # ── Google token verification ────────────────────────────────────────────────
@@ -51,7 +77,6 @@ async def verify_google_token(id_token: str) -> dict:
             detail="Invalid Google token",
         )
     data = resp.json()
-    # Verify the token was issued for our app
     expected_client_id = os.getenv("GOOGLE_CLIENT_ID", "")
     if expected_client_id and data.get("aud") != expected_client_id:
         raise HTTPException(
@@ -61,31 +86,50 @@ async def verify_google_token(id_token: str) -> dict:
     return data
 
 
+def _set_session_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=token,
+        httponly=True,
+        secure=not _INSECURE_COOKIES,
+        samesite="strict",
+        max_age=COOKIE_MAX_AGE,
+        path="/",
+    )
+
+
 # ── Routes ───────────────────────────────────────────────────────────────────
 
-@router.post("/login", response_model=TokenResponse)
-async def login_with_google(body: GoogleLoginRequest, db: AsyncSession = Depends(get_db)):
+@router.post("/login", response_model=LoginResponse)
+async def login_with_google(
+    response: Response,
+    body: GoogleLoginRequest,
+    db: AsyncSession = Depends(get_db),
+):
     """
-    Verify Google ID token → create or update user → return JWT.
+    Verify Google ID token → create or update user → set JWT in httpOnly cookie.
     Called by the frontend after NextAuth Google sign-in.
     """
+    if not _verify_invite(body.invite_code):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Private beta requires a valid invite code.",
+        )
+
     google_data = await verify_google_token(body.id_token)
     google_id = google_data["sub"]
     email = google_data.get("email", "")
     name = google_data.get("name", "")
     picture = google_data.get("picture", "")
 
-    # Find existing user or create new one
     result = await db.execute(select(User).where(User.google_id == google_id))
     user = result.scalar_one_or_none()
 
     if user:
-        # Update last login and any changed profile info
         user.last_login = datetime.now(timezone.utc)
         user.name = name or user.name
         user.avatar_url = picture or user.avatar_url
     else:
-        # New user — create with free tier
         user = User(
             email=email,
             name=name,
@@ -98,15 +142,17 @@ async def login_with_google(body: GoogleLoginRequest, db: AsyncSession = Depends
     await db.commit()
     await db.refresh(user)
 
-    # Issue JWT
     access_token = create_access_token(user.id, user.email)
+    _set_session_cookie(response, access_token)
 
-    return TokenResponse(
-        access_token=access_token,
-        user_id=user.id,
-        name=user.name,
-        email=user.email,
-    )
+    return LoginResponse(user_id=user.id, name=user.name, email=user.email)
+
+
+@router.post("/logout")
+async def logout(response: Response):
+    """Clear the session cookie."""
+    response.delete_cookie(key=COOKIE_NAME, path="/")
+    return {"status": "ok"}
 
 
 @router.get("/me")
