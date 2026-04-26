@@ -1,5 +1,8 @@
 # Codespace Smoke Runbook — Day 5-6
 
+> **🛑 For pre-launch validation, use `real_test_plan.md` in this same folder, not this doc.**
+> This runbook uses a synthetic-JWT smoke script — useful as a regression check after code changes, but it does NOT prove the platform works for a real user (no real Google OAuth, no real Razorpay webhook). Keep this doc around for CI / "did anything break" checks. For the launch decision, follow the real test plan.
+
 **For:** Sameer, in your GitHub Codespace.
 **When to run:** after pulling the launch-sprint commits (auth cookie, LLM hardening, Razorpay webhook, invite gate).
 **Goal:** in ~30 minutes, confirm every part of the platform works end-to-end before opening private beta on Apr 30.
