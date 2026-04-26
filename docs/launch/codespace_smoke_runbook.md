@@ -212,3 +212,13 @@ Once everything is green, we move to the actual private beta launch on Apr 30:
 - **`test_events_loader.py` fails on Windows** (hardcoded `/tmp` path). Pre-existing, unrelated to launch sprint, doesn't affect runtime. Will fix when convenient.
 - **First `/advice` request after a cold start is slow (60-90s)** — agents are loading models + fetching live data. Subsequent requests inside the same session are faster.
 - **If Groq is rate-limited**, the LLM client now auto-falls-back to OpenRouter. You'll see a `groq.rate_limit_hit_falling_back_to_openrouter` log line — that's **good**, not a bug.
+
+## Model switch (2026-04-26)
+
+Default LLM is now **Kimi K2** instead of Llama 3.3 70B:
+- **Groq:** `moonshotai/kimi-k2-instruct` (same `GROQ_API_KEY`, no new account)
+- **OpenRouter fallback:** `moonshotai/kimi-k2:free` (same `OPENROUTER_API_KEY`)
+
+Per-deploy override: set `GROQ_MODEL` or `OPENROUTER_MODEL` env to switch back to Llama (or any other Groq/OpenRouter model) without code changes.
+
+If you see `model_not_found` errors in Terminal A logs, your Groq account may not have Kimi K2 enabled yet — either request access in the Groq console, or set `GROQ_MODEL=llama-3.3-70b-versatile` in `backend/.env` to revert.

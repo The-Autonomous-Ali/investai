@@ -1,6 +1,11 @@
 """
 Universal LLM Client — Routes each agent to its optimal free model provider.
-UPDATED: Replaced discontinued qwen model with working free alternatives.
+
+Model defaults (2026-04-26): switched from Llama 3.3 70B to Kimi K2.
+- Groq hosts Kimi K2 as `moonshotai/kimi-k2-instruct` (same GROQ_API_KEY).
+- OpenRouter free tier serves it as `moonshotai/kimi-k2:free`.
+- Both are drop-in OpenAI-compatible — no SDK changes required.
+- Override per-deploy with GROQ_MODEL / OPENROUTER_MODEL env vars.
 """
 
 import asyncio
@@ -16,54 +21,54 @@ logger = structlog.get_logger()
 
 AGENT_MODELS = {
     # ── Core Pipeline ──────────────────────────────────────────────────────────
-    "orchestrator":              {"provider": "groq",       "model": "llama-3.3-70b-versatile"},
-    "signal_watcher":            {"provider": "groq",       "model": "llama-3.3-70b-versatile"},
+    "orchestrator":              {"provider": "groq",       "model": "moonshotai/kimi-k2-instruct"},
+    "signal_watcher":            {"provider": "groq",       "model": "moonshotai/kimi-k2-instruct"},
 
     # ── Layer 1 — Global Macro Intelligence ───────────────────────────────────
-    "global_macro_agent":        {"provider": "groq",       "model": "llama-3.3-70b-versatile"},
+    "global_macro_agent":        {"provider": "groq",       "model": "moonshotai/kimi-k2-instruct"},
 
     # ── Analysis Layer ─────────────────────────────────────────────────────────
-    "research_agent":            {"provider": "groq",       "model": "llama-3.3-70b-versatile"},
-    "pattern_matcher":           {"provider": "groq",       "model": "llama-3.3-70b-versatile"},
-    "temporal_agent":            {"provider": "groq",       "model": "llama-3.3-70b-versatile"},
+    "research_agent":            {"provider": "groq",       "model": "moonshotai/kimi-k2-instruct"},
+    "pattern_matcher":           {"provider": "groq",       "model": "moonshotai/kimi-k2-instruct"},
+    "temporal_agent":            {"provider": "groq",       "model": "moonshotai/kimi-k2-instruct"},
 
     # ── Company Layer ──────────────────────────────────────────────────────────
-    "company_intelligence":      {"provider": "groq",       "model": "llama-3.3-70b-versatile"},
+    "company_intelligence":      {"provider": "groq",       "model": "moonshotai/kimi-k2-instruct"},
 
     # ── Layer 3 — Sentiment Aggregator ────────────────────────────────────────
-    "sentiment_aggregator":      {"provider": "groq",       "model": "llama-3.3-70b-versatile"},
+    "sentiment_aggregator":      {"provider": "groq",       "model": "moonshotai/kimi-k2-instruct"},
 
     # ── Portfolio & Tax ────────────────────────────────────────────────────────
-    "portfolio_agent":           {"provider": "groq",       "model": "llama-3.3-70b-versatile"},
-    "tax_agent":                 {"provider": "groq",       "model": "llama-3.3-70b-versatile"},
+    "portfolio_agent":           {"provider": "groq",       "model": "moonshotai/kimi-k2-instruct"},
+    "tax_agent":                 {"provider": "groq",       "model": "moonshotai/kimi-k2-instruct"},
 
     # ── Validation Layer ───────────────────────────────────────────────────────
-    "critic_agent":              {"provider": "groq",       "model": "llama-3.3-70b-versatile"},
-    "watchdog":                  {"provider": "groq",       "model": "llama-3.3-70b-versatile"},
+    "critic_agent":              {"provider": "groq",       "model": "moonshotai/kimi-k2-instruct"},
+    "watchdog":                  {"provider": "groq",       "model": "moonshotai/kimi-k2-instruct"},
 
     # ── Output & Feedback ──────────────────────────────────────────────────────
-    "investment_manager":        {"provider": "groq",       "model": "llama-3.3-70b-versatile"},
-    "performance_tracker":       {"provider": "groq",       "model": "llama-3.3-70b-versatile"},
+    "investment_manager":        {"provider": "groq",       "model": "moonshotai/kimi-k2-instruct"},
+    "performance_tracker":       {"provider": "groq",       "model": "moonshotai/kimi-k2-instruct"},
 
     # ── What If Simulator ─────────────────────────────────────────────────────
-    "whatif_agent":              {"provider": "groq",       "model": "llama-3.3-70b-versatile"},
+    "whatif_agent":              {"provider": "groq",       "model": "moonshotai/kimi-k2-instruct"},
 
     # ── GraphRAG Enricher ─────────────────────────────────────────────────────
-    "graphrag_enricher":         {"provider": "groq",       "model": "llama-3.3-70b-versatile"},
+    "graphrag_enricher":         {"provider": "groq",       "model": "moonshotai/kimi-k2-instruct"},
 
     # ── Data Scrapers ─────────────────────────────────────────────────────────
-    "data_scraper":              {"provider": "groq",       "model": "llama-3.3-70b-versatile"},
+    "data_scraper":              {"provider": "groq",       "model": "moonshotai/kimi-k2-instruct"},
 
     # ── Technical Analysis (Candlestick + Volatility) ─────────────────────────
-    "technical_analysis_agent":  {"provider": "groq",       "model": "llama-3.3-70b-versatile"},
+    "technical_analysis_agent":  {"provider": "groq",       "model": "moonshotai/kimi-k2-instruct"},
 
     # ── Plain Language Formatter ──────────────────────────────────────────────
-    "plain_language_formatter":  {"provider": "groq",       "model": "llama-3.3-70b-versatile"},
-    "market_intelligence":       {"provider": "groq",       "model": "llama-3.3-70b-versatile"},
-    "free_data_feeds":           {"provider": "groq",       "model": "llama-3.3-70b-versatile"},
+    "plain_language_formatter":  {"provider": "groq",       "model": "moonshotai/kimi-k2-instruct"},
+    "market_intelligence":       {"provider": "groq",       "model": "moonshotai/kimi-k2-instruct"},
+    "free_data_feeds":           {"provider": "groq",       "model": "moonshotai/kimi-k2-instruct"},
 }
 
-DEFAULT_MODEL = {"provider": "groq", "model": "llama-3.3-70b-versatile"}
+DEFAULT_MODEL = {"provider": "groq", "model": "moonshotai/kimi-k2-instruct"}
 
 SYSTEM_PROMPT = "You are a financial AI assistant. Always respond with valid JSON only. No markdown, no code fences, no extra text before or after the JSON."
 
@@ -84,11 +89,11 @@ async def _call_groq(prompt: str, model_name: str) -> str:
         )
         return response.choices[0].message.content
     except Exception as e:
-        # FIX: removed fallback to discontinued qwen model
-        # now falls back to mistral which is free and working on OpenRouter
+        # On Groq rate limit, fall back to the same Kimi K2 family on
+        # OpenRouter's free tier so behaviour stays consistent.
         if "429" in str(e) or "rate_limit" in str(e):
             logger.warning("groq.rate_limit_hit_falling_back_to_openrouter")
-            return await _call_openrouter(prompt, "meta-llama/llama-3.3-70b-instruct:free")
+            return await _call_openrouter(prompt, "moonshotai/kimi-k2:free")
         raise
 
 
@@ -167,11 +172,12 @@ async def call_llm(prompt: str, agent_name: str = "default") -> str:
     Route a prompt to the correct provider.
 
     AI_PROVIDER in .env:
-      groq       → all agents use Groq Llama (default, testing)
+      groq       → all agents use Groq Kimi K2 (default; fast, free, JSON-friendly)
       anthropic  → all agents use Claude (production)
-      openrouter → all agents go through OpenRouter (fallback when Groq is rate-limited or key revoked)
+      openrouter → all agents go through OpenRouter Kimi K2 free tier
+      gemini     → all agents use Google Gemini
       kaggle     → all agents use Ollama/Gemma on Kaggle via ngrok tunnel
-      auto       → each agent uses its designated model
+      auto       → each agent uses its designated model from AGENT_MODELS
     """
     global_provider = os.getenv("AI_PROVIDER", "groq")
 
@@ -181,12 +187,12 @@ async def call_llm(prompt: str, agent_name: str = "default") -> str:
         return _clean(text)
 
     if global_provider == "groq":
-        model_name = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+        model_name = os.getenv("GROQ_MODEL", "moonshotai/kimi-k2-instruct")
         text = await _call_groq(prompt, model_name)
         return _clean(text)
 
     if global_provider == "openrouter":
-        model_name = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
+        model_name = os.getenv("OPENROUTER_MODEL", "moonshotai/kimi-k2:free")
         text = await _call_openrouter(prompt, model_name)
         return _clean(text)
 
@@ -219,7 +225,7 @@ async def call_llm(prompt: str, agent_name: str = "default") -> str:
             text = await _call_kaggle(prompt, model)
         else:
             log.warning("llm_client.unknown_provider", fallback="groq")
-            text = await _call_groq(prompt, "llama-3.3-70b-versatile")
+            text = await _call_groq(prompt, "moonshotai/kimi-k2-instruct")
 
         return _clean(text)
 
@@ -228,7 +234,7 @@ async def call_llm(prompt: str, agent_name: str = "default") -> str:
         if provider != "groq":
             log.warning("llm_client.fallback_to_groq")
             try:
-                text = await _call_groq(prompt, "llama-3.3-70b-versatile")
+                text = await _call_groq(prompt, "moonshotai/kimi-k2-instruct")
                 return _clean(text)
             except Exception as fe:
                 log.error("llm_client.fallback_failed", error=str(fe))
@@ -245,7 +251,7 @@ def _clean(text: str) -> str:
 
 # Provider for last-ditch fallback when the configured provider keeps producing
 # malformed output. Set to None to disable.
-_FALLBACK_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
+_FALLBACK_MODEL = "moonshotai/kimi-k2:free"
 
 
 async def call_llm_structured(
@@ -298,7 +304,7 @@ async def call_llm_structured(
             if fallback_provider == "openrouter":
                 raw = await _call_openrouter(prompt, _FALLBACK_MODEL)
             elif fallback_provider == "groq":
-                raw = await _call_groq(prompt, "llama-3.3-70b-versatile")
+                raw = await _call_groq(prompt, "moonshotai/kimi-k2-instruct")
             elif fallback_provider == "gemini":
                 raw = await _call_gemini(prompt, os.getenv("GEMINI_MODEL", "gemini-2.0-flash"))
             else:
