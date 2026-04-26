@@ -22,9 +22,16 @@ from .market_intelligence import MarketIntelligence
 from .adversarial_agent import AdversarialAgent
 from .risk_engine import RiskEngine
 from .data_scrapers import NSEDataScraper
-from utils.llm_client import call_llm
+from utils.llm_client import call_llm, call_llm_structured
+from pydantic import BaseModel, ConfigDict
 
 logger = structlog.get_logger()
+
+
+class _TaskPlanSchema(BaseModel):
+    """Loose schema — just verifies the LLM returned a task_plan list."""
+    model_config = ConfigDict(extra="allow")
+    task_plan: list[dict]
 
 ORCHESTRATOR_PROMPT = """You are the Orchestrator of InvestAI, a financial intelligence system for global markets.
 
@@ -376,8 +383,17 @@ class OrchestratorAgent:
             horizon=state["horizon"],
             country=state["country"],
         )
-        text = await call_llm(prompt, agent_name="orchestrator")
-        return json.loads(text)
+        try:
+            plan = await call_llm_structured(
+                prompt,
+                _TaskPlanSchema,
+                agent_name="orchestrator",
+                max_retries=3,
+            )
+            return plan.model_dump()
+        except Exception as e:
+            logger.error("orchestrator.task_plan_failed", error=str(e)[:200])
+            return {"task_plan": []}
 
     async def _execute_task_plan(self, state: dict, task_plan: dict):
         tasks     = task_plan["task_plan"]

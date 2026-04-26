@@ -3,8 +3,14 @@ Universal LLM Client — Routes each agent to its optimal free model provider.
 UPDATED: Replaced discontinued qwen model with working free alternatives.
 """
 
+import asyncio
+import json
 import os
+
 import structlog
+from pydantic import BaseModel, ValidationError
+
+from utils.llm_schema import parse_and_validate
 
 logger = structlog.get_logger()
 
@@ -233,4 +239,76 @@ def _clean(text: str) -> str:
     if not text:
         return "{}"
     return text.strip().replace("```json", "").replace("```", "").strip()
+
+
+# ── Schema-validated entry point ───────────────────────────────────────────────
+
+# Provider for last-ditch fallback when the configured provider keeps producing
+# malformed output. Set to None to disable.
+_FALLBACK_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
+
+
+async def call_llm_structured(
+    prompt: str,
+    schema: type[BaseModel],
+    agent_name: str = "default",
+    max_retries: int = 3,
+    fallback_provider: str | None = "openrouter",
+) -> BaseModel:
+    """
+    Call the LLM, parse the response as JSON, and validate against ``schema``.
+
+    Strategy:
+      1. Try the configured provider up to ``max_retries`` times. Each failure
+         backs off exponentially (2s, 4s, 8s) before retrying.
+      2. If every retry fails and ``fallback_provider`` differs from the active
+         provider, do one last attempt against the fallback.
+      3. Raise the most recent error if everything fails.
+    """
+    log = logger.bind(agent=agent_name, schema=schema.__name__)
+    last_error: Exception | None = None
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            raw = await call_llm(prompt, agent_name)
+            return parse_and_validate(raw, schema)
+        except (ValidationError, json.JSONDecodeError) as e:
+            last_error = e
+            log.warning(
+                "llm_schema.validation_failed",
+                attempt=attempt,
+                max_retries=max_retries,
+                error=str(e)[:200],
+            )
+            if attempt < max_retries:
+                wait = 2 ** attempt
+                log.info("llm_schema.retrying", wait_seconds=wait)
+                await asyncio.sleep(wait)
+        except Exception as e:
+            # Provider-level errors (rate limits, network) — bail out and let
+            # the fallback provider take over below.
+            last_error = e
+            log.warning("llm_schema.provider_error", attempt=attempt, error=str(e)[:200])
+            break
+
+    active_provider = os.getenv("AI_PROVIDER", "groq")
+    if fallback_provider and fallback_provider != active_provider:
+        log.warning("llm_schema.fallback_provider", provider=fallback_provider)
+        try:
+            if fallback_provider == "openrouter":
+                raw = await _call_openrouter(prompt, _FALLBACK_MODEL)
+            elif fallback_provider == "groq":
+                raw = await _call_groq(prompt, "llama-3.3-70b-versatile")
+            elif fallback_provider == "gemini":
+                raw = await _call_gemini(prompt, os.getenv("GEMINI_MODEL", "gemini-2.0-flash"))
+            else:
+                raise RuntimeError(f"Unknown fallback provider: {fallback_provider}")
+            return parse_and_validate(_clean(raw), schema)
+        except Exception as e:
+            log.error("llm_schema.fallback_failed", error=str(e)[:200])
+            last_error = e
+
+    log.error("llm_schema.all_attempts_failed", error=str(last_error)[:200])
+    assert last_error is not None
+    raise last_error
 
