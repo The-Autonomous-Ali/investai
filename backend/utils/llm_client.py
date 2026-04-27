@@ -89,11 +89,23 @@ async def _call_groq(prompt: str, model_name: str) -> str:
         )
         return response.choices[0].message.content
     except Exception as e:
-        # On Groq rate limit, fall back to the same Kimi K2 family on
-        # OpenRouter's free tier so behaviour stays consistent.
+        # On Groq rate limit: try OpenRouter if key is set, else retry once after delay
         if "429" in str(e) or "rate_limit" in str(e):
-            logger.warning("groq.rate_limit_hit_falling_back_to_openrouter")
-            return await _call_openrouter(prompt, "moonshotai/kimi-k2:free")
+            if os.getenv("OPENROUTER_API_KEY"):
+                logger.warning("groq.rate_limit_hit_falling_back_to_openrouter")
+                return await _call_openrouter(prompt, os.getenv("OPENROUTER_MODEL", "moonshotai/kimi-k2:free"))
+            logger.warning("groq.rate_limit_hit_retrying", delay_s=8)
+            await asyncio.sleep(8)
+            response2 = await client.chat.completions.create(
+                model=model_name,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user",   "content": prompt},
+                ],
+                max_tokens=4096,
+                temperature=0.1,
+            )
+            return response2.choices[0].message.content
         raise
 
 
