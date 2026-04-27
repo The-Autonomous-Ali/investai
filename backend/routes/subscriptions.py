@@ -190,7 +190,7 @@ async def create_subscription(
         db.add(sub)
 
     user.queries_used_this_month = 0
-    user.queries_reset_date = now + timedelta(days=30)
+    user.queries_reset_date = (now + timedelta(days=30)).replace(tzinfo=None)
 
     await db.commit()
 
@@ -267,7 +267,7 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
         user.subscription_tier = new_tier
         now = datetime.now(timezone.utc)
         user.queries_used_this_month = 0
-        user.queries_reset_date = now + timedelta(days=30)
+        user.queries_reset_date = (now + timedelta(days=30)).replace(tzinfo=None)
 
         existing = await db.execute(select(Subscription).where(Subscription.user_id == user.id))
         sub = existing.scalar_one_or_none()

@@ -36,7 +36,7 @@ def refresh_query_window(user, now: datetime | None = None) -> bool:
 
     if reset_date is None or reset_date <= now:
         user.queries_used_this_month = 0
-        user.queries_reset_date = now + timedelta(days=RESET_WINDOW_DAYS)
+        user.queries_reset_date = (now + timedelta(days=RESET_WINDOW_DAYS)).replace(tzinfo=None)
         return used != 0 or reset_date is None
 
     return False
