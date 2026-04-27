@@ -187,11 +187,20 @@ async def create_signal_links_for_advice(
     advice_id: str,
     signals: list[dict],
 ) -> None:
-    """Snapshot the driving signals attached to a generated advice record."""
+    """Snapshot the driving signals attached to a generated advice record.
+    Signals with IDs not present in the signals table (e.g. mock signals) are skipped.
+    """
     for sig_dict in signals:
+        signal_id = sig_dict.get("id")
+        if not signal_id:
+            continue
+        # Verify the signal exists to avoid FK violation on mock IDs
+        exists = await db.execute(select(Signal).where(Signal.id == signal_id))
+        if exists.scalar_one_or_none() is None:
+            continue
         link = AdviceSignalLink(
             advice_id=advice_id,
-            signal_id=sig_dict.get("id"),
+            signal_id=signal_id,
             signal_title=sig_dict.get("title", "Unknown signal"),
             signal_type=sig_dict.get("signal_type"),
             importance_at_advice=sig_dict.get("importance_score"),

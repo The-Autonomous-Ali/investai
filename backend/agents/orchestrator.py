@@ -347,6 +347,7 @@ class OrchestratorAgent:
                     log.info("orchestrator.signal_links_created",
                              count=len(driving_signals))
             except Exception as e:
+                await self.db.rollback()
                 log.warning("orchestrator.signal_links_failed", error=str(e))
 
             elapsed = round(time.time() - start_time, 2)
