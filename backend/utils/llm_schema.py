@@ -19,10 +19,12 @@ logger = structlog.get_logger()
 _FENCE_RE = re.compile(r"^```(?:json|JSON)?\s*|\s*```\s*$", re.MULTILINE)
 _TRAILING_COMMA_RE = re.compile(r",\s*([}\]])")
 _LEADING_PROSE_RE = re.compile(r"^[^{\[]*(?=[{\[])", re.DOTALL)
+# Control chars invalid in JSON strings (exclude \t=0x09, \n=0x0a, \r=0x0d which are fine)
+_CTRL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
 
 def repair_json(raw: str) -> str:
-    """Strip markdown fences, leading prose, and common syntax errors."""
+    """Strip markdown fences, leading prose, control chars, and common syntax errors."""
     if not raw:
         return ""
     text = raw.strip()
@@ -30,6 +32,7 @@ def repair_json(raw: str) -> str:
     # Drop any leading "Here is the JSON:" style prefix before the first { or [
     text = _LEADING_PROSE_RE.sub("", text, count=1) or text
     text = _TRAILING_COMMA_RE.sub(r"\1", text)
+    text = _CTRL_CHAR_RE.sub("", text)
     return text.strip()
 
 
