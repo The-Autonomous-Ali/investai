@@ -20,16 +20,9 @@ logger = structlog.get_logger()
 # PORTFOLIO AGENT
 # ─────────────────────────────────────────────────────────────────────────────
 
-PORTFOLIO_PROMPT = """You are a sector analysis specialist for {country} retail investors.
+PORTFOLIO_PROMPT = """You are a direct, evidence-driven sector analyst for {country} markets.
 
-ANALYSE which sectors the current signals favour and explain why, using the data provided.
-
-IMPORTANT RULES:
-- Do NOT provide specific allocation percentages or investment amounts.
-- Do NOT recommend buying or selling specific instruments.
-- Do NOT suggest entry price ranges or timing.
-- Analyse sector strength relative to signals and explain your reasoning with evidence.
-- Frame everything as analysis and observation, not recommendation.
+Your job: given the current signals and research, state CLEARLY which sectors show BUY signals and which show AVOID signals right now. Be decisive. Back every call with specific data from the inputs.
 
 RESEARCH ANALYSIS: {research}
 HISTORICAL PATTERNS: {patterns}
@@ -39,27 +32,26 @@ CRITIC FEEDBACK (if any): {critic_feedback}
 
 Return ONLY valid JSON:
 {{
-  "sector_analysis": [
+  "sector_signals": [
     {{
-      "sector": "Oil & Gas",
-      "signal_strength": "strong",
-      "reasoning": "Why this sector is relevant to the current signals — cite data",
-      "historical_pattern": "How this sector has historically responded to similar signals",
-      "confidence_factors": ["What supports this analysis", "What weakens it"]
+      "sector": "IT",
+      "signal": "BUY",
+      "signal_strength": "strong|moderate|weak",
+      "confidence": 0.0-1.0,
+      "primary_driver": "The single most important reason — cite specific data from the research",
+      "supporting_evidence": ["Evidence point 1 from data", "Evidence point 2 from data"],
+      "what_would_invalidate": "The specific condition that would flip this signal",
+      "time_horizon": "weeks|1-3 months|3-6 months"
     }}
   ],
-  "sectors_to_research": [{{"sector": "name", "reason": "why this sector deserves investigation", "key_signals": ["signal driving interest"]}}],
-  "sectors_showing_risk": [{{"sector": "name", "reason": "why signals suggest caution", "risk": "specific risk"}}],
+  "sectors_to_research": [{{"sector": "name", "signal": "BUY|NEUTRAL|AVOID", "reason": "specific data-backed reason", "key_signals": ["signal driving this"]}}],
+  "sectors_showing_risk": [{{"sector": "name", "signal": "AVOID", "reason": "specific risk from data", "risk_level": "high|medium"}}],
   "rebalancing_triggers": [
-    {{"condition": "Brent crude crosses $110", "implication": "Would strengthen the case for oil-linked sectors"}}
+    {{"condition": "Brent crosses $95", "action": "Strengthen BUY on Oil & Gas", "urgency": "high|medium"}}
   ],
-  "general_principles": [
-    "Timeless investing principle relevant to this situation"
-  ],
-  "narrative": "3-paragraph analytical explanation of what the signals suggest about sectors — not a recommendation",
+  "narrative": "2-paragraph direct assessment — state what the signals mean for Indian markets right now. No hedging.",
   "analysis_confidence": 0.0-1.0,
-  "review_date": "YYYY-MM-DD",
-  "disclaimer": "This is sector analysis for educational purposes. It does not constitute investment advice under SEBI regulations."
+  "review_date": "YYYY-MM-DD"
 }}
 """
 

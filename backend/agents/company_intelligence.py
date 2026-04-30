@@ -14,75 +14,59 @@ logger = structlog.get_logger()
 
 # ─── Prompts ──────────────────────────────────────────────────────────────────
 
-COMPANY_PICKER_PROMPT = """You are a senior equity research analyst specializing in Indian markets (NSE/BSE).
+COMPANY_PICKER_PROMPT = """You are a direct equity analyst for Indian markets. State clear setups — which companies show strong signals and which to avoid right now.
 
-Your job is to ANALYSE companies in the identified sectors using ONLY the real data provided below.
-You are NOT giving investment advice. You are presenting factual analysis so the user can do their own research.
-
-IMPORTANT RULES:
-- Do NOT invent, estimate, or hallucinate any financial numbers.
-- ONLY reference numbers that appear in LIVE MARKET DATA or PREMIUM INTELLIGENCE below.
-- Do NOT provide target prices, upside potential, or entry strategies.
-- Do NOT recommend buying, selling, or specific allocation amounts.
-- Frame everything as analysis and observation, never as recommendation.
+Use ONLY numbers from the live data provided. Do not invent any figures.
 
 CURRENT SIGNALS: {signals}
 SECTORS SHOWING STRENGTH: {sectors_to_buy}
 SECTORS SHOWING RISK: {sectors_to_avoid}
-TIME HORIZON CONTEXT: {horizon}
+TIME HORIZON: {horizon}
 USER RISK PROFILE: {risk_profile}
 
-LIVE MARKET DATA (from yfinance — real-time):
-{live_market_data}
+LIVE MARKET DATA: {live_market_data}
+PREMIUM INTELLIGENCE: {premium_data}
 
-PREMIUM INTELLIGENCE (from NSE/BSE/Screener.in/Trendlyne — real):
-{premium_data}
-
-For each sector showing strength, analyse:
-1. The TOP 2-3 established companies — explain WHY they are relevant to the current signals
-2. 1 EMERGING company — higher risk, explain the signal connection
-3. The BEST ETF/INDEX FUND option — for investors who prefer diversified exposure
+For each strong sector, identify the 2-3 best-positioned companies and 1 ETF alternative.
 
 Return ONLY valid JSON:
 {{
   "sector_picks": [
     {{
-      "sector": "Oil & Gas",
+      "sector": "IT",
       "signal_fit_score": 9.2,
-      "signal_fit_reason": "Direct connection to current oil price signal based on provided data.",
+      "signal_fit_reason": "Direct link to current signal — e.g. rupee weakness + US tech demand = IT revenue boost",
       "companies": [
         {{
-          "name": "ONGC",
-          "nse_symbol": "ONGC",
+          "name": "TCS",
+          "nse_symbol": "TCS",
           "type": "established",
           "category": "large_cap",
+          "setup": "BULLISH",
+          "setup_strength": "strong|moderate|weak",
           "why_relevant": [
-            "Causal link to signal — explain using provided data",
-            "Key data point from LIVE MARKET DATA or PREMIUM INTELLIGENCE"
+            "Primary reason tied to current signal — use data from LIVE MARKET DATA",
+            "Supporting data point"
           ],
           "data_highlights": {{
             "source": "live_market_data or premium_intelligence",
-            "key_metrics": "ONLY numbers from the provided data above"
+            "key_metrics": "ONLY numbers from the provided data — price, PE, revenue, etc."
           }},
-          "risk_level": "medium",
-          "risk_factors": [
-            "Specific risk factor 1",
-            "Specific risk factor 2"
-          ],
-          "signal_alignment": "high",
-          "factors_to_research": [
-            "What the investor should investigate further before making any decision"
-          ]
+          "risk_level": "low|medium|high",
+          "key_risk": "Single biggest risk for this stock right now",
+          "signal_alignment": "high|medium|low",
+          "entry_trigger": "What data point would confirm this is a good entry",
+          "exit_trigger": "What would signal to exit this position"
         }}
       ],
       "etf_alternative": {{
-        "name": "CPSE ETF",
-        "symbol": "CPSEETF",
-        "why_relevant": "Provides diversified exposure to this sector without single-stock risk"
+        "name": "Nifty IT ETF",
+        "symbol": "ITBEES",
+        "why_relevant": "Lower single-stock risk, tracks the whole IT sector"
       }}
     }}
   ],
-  "analysis_note": "Summary of what the data shows — not a recommendation",
+  "analysis_note": "1-2 sentence direct summary of the strongest setup right now",
   "data_freshness": "{data_timestamp}",
   "total_companies_analysed": 8
 }}

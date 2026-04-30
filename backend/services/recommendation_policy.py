@@ -16,11 +16,16 @@ POLICY_VERSION = "2026-04-20.v1"
 
 POSITION_REVIEW_TERMS = {
     "hold", "keep", "sell", "trim", "exit", "invest more", "add more",
-    "average", "holding", "shares", "stocks",
+    "average", "holding",
 }
 DEPLOY_CASH_TERMS = {
     "invest", "deploy", "allocate", "put money", "where should i invest",
     "50k", "100k", "50000", "100000",
+}
+# "should I buy X" or "is X good" — stock-specific inquiry
+STOCK_INQUIRY_TERMS = {
+    "should i buy", "should i invest in", "buy now", "good time to buy",
+    "worth buying", "is it good", "what about", "analysis of",
 }
 
 
@@ -56,11 +61,19 @@ class RecommendationPolicy:
         confidence = self._compute_confidence(analysis, query_context)
         holdings = user_profile.get("current_holdings_detail", [])
 
-        if query_context["query_type"] == "position_review":
+        if query_context["query_type"] == "position_review" and query_context.get("matched_holding"):
             decision = self._build_position_review(
                 query=query,
                 analysis=analysis,
                 user_profile=user_profile,
+                query_context=query_context,
+                confidence=confidence,
+            )
+        elif query_context["query_type"] in ("stock_inquiry", "position_review"):
+            # Stock asked about but not in portfolio → give signal-based analysis
+            decision = self._build_stock_inquiry(
+                query=query,
+                analysis=analysis,
                 query_context=query_context,
                 confidence=confidence,
             )
@@ -72,7 +85,7 @@ class RecommendationPolicy:
                 confidence=confidence,
             )
         else:
-            decision = self._build_general_watch(
+            decision = self._build_signal_summary(
                 analysis=analysis,
                 confidence=confidence,
             )
@@ -149,17 +162,19 @@ class RecommendationPolicy:
 
         position_review = any(term in normalized for term in POSITION_REVIEW_TERMS)
         deploy_cash = any(term in normalized for term in DEPLOY_CASH_TERMS)
+        stock_inquiry = any(term in normalized for term in STOCK_INQUIRY_TERMS)
 
-        if matched_holding and position_review:
+        if matched_holding and (position_review or stock_inquiry):
             query_type = "position_review"
-        elif position_review:
-            query_type = "position_review"
-        elif matched_holding and ("invest more" in normalized or "add more" in normalized):
-            query_type = "position_review"
-        elif deploy_cash and not matched_holding:
-            query_type = "deploy_cash"
         elif matched_holding:
             query_type = "position_review"
+        elif stock_inquiry:
+            query_type = "stock_inquiry"
+        elif position_review and not matched_holding:
+            # "should I buy X" without X in portfolio → treat as stock inquiry
+            query_type = "stock_inquiry"
+        elif deploy_cash:
+            query_type = "deploy_cash"
         else:
             query_type = "general_research"
 
@@ -167,9 +182,20 @@ class RecommendationPolicy:
             "query_type": query_type,
             "normalized_query": normalized,
             "matched_holding": matched_holding,
+            "queried_name": self._extract_stock_name(normalized),
             "asks_to_add": any(term in normalized for term in ("invest more", "add more", "buy more")),
             "asks_to_exit": any(term in normalized for term in ("sell", "exit", "trim")),
         }
+
+    def _extract_stock_name(self, normalized_query: str) -> str:
+        """Best-effort extract of company/sector name from query."""
+        stopwords = {
+            "should", "i", "buy", "sell", "invest", "in", "now", "is",
+            "good", "time", "to", "right", "stocks", "stock", "shares",
+            "analysis", "of", "what", "about", "worth", "buying",
+        }
+        words = [w for w in normalized_query.split() if w not in stopwords and len(w) > 2]
+        return " ".join(words[:3]) if words else ""
 
     def _match_holding(self, normalized_query: str, holdings: list[dict]) -> dict | None:
         for holding in holdings:
@@ -432,12 +458,129 @@ class RecommendationPolicy:
             })
         return moves
 
-    def _build_general_watch(self, *, analysis: dict, confidence: float) -> dict:
+    def _build_stock_inquiry(
+        self,
+        *,
+        query: str,
+        analysis: dict,
+        query_context: dict,
+        confidence: float,
+    ) -> dict:
+        """Handle 'should I buy X' queries where X is not in portfolio."""
+        queried_name = query_context.get("queried_name", "")
+        sectors_to_buy = analysis.get("sectors_to_buy", [])
+        sectors_to_avoid = analysis.get("sectors_to_avoid", [])
+        company_picks = analysis.get("company_picks", [])
+
+        # Try to find the queried stock in company picks
+        matched_company = None
+        matched_sector_signal = None
+        for sector_pick in company_picks:
+            for company in sector_pick.get("companies", []):
+                name_lower = _norm(company.get("name", ""))
+                sym_lower = _norm(company.get("nse_symbol", ""))
+                if queried_name and (
+                    queried_name in name_lower or name_lower in queried_name or
+                    queried_name in sym_lower
+                ):
+                    matched_company = company
+                    matched_sector_signal = sector_pick
+                    break
+
+        # Derive signal from sector strength
+        sector_names_buy = {_norm(s.get("sector", "")): s for s in sectors_to_buy}
+        sector_names_avoid = {_norm(s.get("sector", "")): s for s in sectors_to_avoid}
+
+        if matched_company and matched_sector_signal:
+            setup = matched_company.get("setup", "NEUTRAL")
+            signal_map = {"BULLISH": "buy", "STRONG BULLISH": "buy", "BEARISH": "avoid",
+                          "STRONG BEARISH": "avoid", "NEUTRAL": "watch",
+                          "BUY": "buy", "AVOID": "avoid"}
+            action = signal_map.get(setup.upper(), "watch")
+            strength = matched_company.get("setup_strength", "moderate")
+            summary = (
+                f"Current signals for {queried_name.upper() or 'this stock'}: "
+                f"{setup}. {matched_sector_signal.get('signal_fit_reason', '')}"
+            )
+            rationale = ". ".join(matched_company.get("why_relevant", [])[:2])
+            entry_trigger = matched_company.get("entry_trigger", "")
+            exit_trigger = matched_company.get("exit_trigger", "")
+            if entry_trigger:
+                summary += f" Entry signal: {entry_trigger}."
+        else:
+            # Fallback: use overall sector/macro analysis
+            macro = analysis.get("global_macro_summary", "")
+            narrative = analysis.get("narrative", "")
+            if sectors_to_buy:
+                action = "watch"
+                strength = "medium"
+                sectors_str = ", ".join(s.get("sector", "") for s in sectors_to_buy[:3])
+                summary = (
+                    f"The analysis did not find a specific match for '{queried_name}' in the data. "
+                    f"Current strong sectors: {sectors_str}. "
+                    f"{macro or narrative}"
+                )
+            else:
+                action = "watch"
+                strength = "low"
+                summary = macro or narrative or "Insufficient data to give a signal for this stock."
+            rationale = narrative or macro
+            entry_trigger = ""
+            exit_trigger = ""
+
+        thesis = (
+            analysis.get("root_cause_narrative")
+            or analysis.get("global_macro_summary")
+            or analysis.get("narrative")
+            or ""
+        )
+
+        moves = [{
+            "instrument": queried_name.title() or "Queried stock",
+            "instrument_type": "stock",
+            "sector": matched_sector_signal.get("sector") if matched_sector_signal else None,
+            "action": action,
+            "weight_pct": None,
+            "amount": None,
+            "rationale": rationale or summary,
+            "evidence": analysis.get("signals_used", [])[:3],
+            "entry_trigger": entry_trigger,
+            "exit_trigger": exit_trigger,
+        }]
+
         return {
-            "action": "watch" if confidence < 0.65 else "hold",
-            "action_strength": "low" if confidence < 0.65 else "medium",
-            "summary": "The analysis is useful for monitoring, but the query does not yet map cleanly to a deploy-or-exit decision.",
-            "thesis": analysis.get("global_macro_summary") or analysis.get("narrative") or "",
+            "action": action,
+            "action_strength": strength,
+            "summary": summary,
+            "thesis": thesis,
+            "recommended_moves": moves,
+            "current_position": None,
+        }
+
+    def _build_signal_summary(self, *, analysis: dict, confidence: float) -> dict:
+        """General market signal summary — used when query doesn't map to a specific stock/sector."""
+        sectors_to_buy = analysis.get("sectors_to_buy", [])
+        sectors_to_avoid = analysis.get("sectors_to_avoid", [])
+        macro = analysis.get("global_macro_summary") or analysis.get("narrative") or ""
+
+        if sectors_to_buy:
+            top_sector = sectors_to_buy[0]
+            action = "buy" if confidence >= 0.6 else "watch"
+            strength = "high" if confidence >= 0.7 else "medium"
+            summary = (
+                f"Strongest signal right now: {top_sector.get('sector', '')} sector. "
+                f"{top_sector.get('reason', '')} {macro}"
+            ).strip()
+        else:
+            action = "watch"
+            strength = "low"
+            summary = macro or "No strong directional signal in current data."
+
+        return {
+            "action": action,
+            "action_strength": strength,
+            "summary": summary,
+            "thesis": analysis.get("root_cause_narrative") or macro,
             "recommended_moves": [],
         }
 

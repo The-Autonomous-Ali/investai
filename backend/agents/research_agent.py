@@ -44,11 +44,12 @@ Analyze and return ONLY valid JSON:
     }}
   ],
   "country_specific_analysis": "detailed paragraph on {country}-specific impact",
+  "overall_signal": "BULLISH|CAUTIOUS_BULLISH|NEUTRAL|CAUTIOUS_BEARISH|BEARISH",
   "sectors_analysis": {{
-    "strong_buy": [{{"sector": "name", "reason": "why", "instruments": ["Asset A", "Asset B"]}}],
+    "strong_buy": [{{"sector": "name", "reason": "specific data-backed reason", "confidence": 0.0-1.0, "instruments": ["Asset A", "Asset B"]}}],
     "buy": [],
     "neutral": [],
-    "avoid": [{{"sector": "name", "reason": "why", "risk_level": "high"}}],
+    "avoid": [{{"sector": "name", "reason": "specific risk from data", "risk_level": "high|medium"}}],
     "strong_avoid": []
   }},
   "currency_impact": "analysis of local currency impact",
