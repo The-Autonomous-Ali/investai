@@ -361,8 +361,12 @@ class CompanyIntelligenceAgent:
             data_timestamp=datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
         )
 
-        text = await call_llm(prompt, agent_name="company_intelligence")
-        return json.loads(text)
+        try:
+            text = await call_llm(prompt, agent_name="company_intelligence")
+            return json.loads(text)
+        except Exception as e:
+            logger.warning("company_intelligence.llm_failed", error=str(e)[:200])
+            return {"sector_picks": [], "error": f"analysis_failed: {str(e)[:100]}"}
 
 
 class InvestmentManagerAgent:

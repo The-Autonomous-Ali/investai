@@ -252,12 +252,15 @@ class OrchestratorAgent:
                     if c.get("nse_symbol")
                 ]
                 
-                market_intel = await self.market_intel.get_full_intelligence(
-                    symbols=symbols[:3],
-                    macro_snapshot=state["agent_outputs"].get("signal_watcher", {}).get("market_snapshot", {}),
-                    signals=state["agent_outputs"].get("signal_watcher", {}).get("signals", []),
-                    india_vix=india_vix,
-                    risk_regime=state["agent_outputs"].get("global_macro_agent", {}).get("risk_regime", "neutral"),
+                market_intel = await asyncio.wait_for(
+                    self.market_intel.get_full_intelligence(
+                        symbols=symbols[:3],
+                        macro_snapshot=state["agent_outputs"].get("signal_watcher", {}).get("market_snapshot", {}),
+                        signals=state["agent_outputs"].get("signal_watcher", {}).get("signals", []),
+                        india_vix=india_vix,
+                        risk_regime=state["agent_outputs"].get("global_macro_agent", {}).get("risk_regime", "neutral"),
+                    ),
+                    timeout=120.0,
                 )
 
                 # Fetch LIVE Max Pain for the top picked stocks

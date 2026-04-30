@@ -84,7 +84,7 @@ async def _call_groq(prompt: str, model_name: str) -> str:
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user",   "content": prompt},
             ],
-            max_tokens=4096,
+            max_tokens=8192,
             temperature=0.1,
         )
         return response.choices[0].message.content
@@ -102,7 +102,7 @@ async def _call_groq(prompt: str, model_name: str) -> str:
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user",   "content": prompt},
                 ],
-                max_tokens=4096,
+                max_tokens=8192,
                 temperature=0.1,
             )
             return response2.choices[0].message.content
@@ -122,7 +122,7 @@ async def _call_openrouter(prompt: str, model_name: str) -> str:
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user",   "content": prompt},
         ],
-        max_tokens=4096,
+        max_tokens=8192,
         temperature=0.1,
     )
     return response.choices[0].message.content
@@ -150,7 +150,7 @@ async def _call_kaggle(prompt: str, model_name: str) -> str:
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user",   "content": prompt},
         ],
-        max_tokens=4096,
+        max_tokens=8192,
         temperature=0.1,
     )
     return response.choices[0].message.content
@@ -172,7 +172,7 @@ async def _call_anthropic(prompt: str, model_name: str) -> str:
     client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
     response = await client.messages.create(
         model=model_name,
-        max_tokens=4096,
+        max_tokens=8192,
         messages=[{"role": "user", "content": prompt}],
     )
     return response.content[0].text

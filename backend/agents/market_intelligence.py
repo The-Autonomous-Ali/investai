@@ -1118,9 +1118,13 @@ class MarketIntelligence:
         (bulk_result, insider_result, earnings_result,
          fii_result, max_pain_result, options_result,
          sector_result) = await asyncio.gather(
-            bulk_task, insider_task, earnings_task,
-            fii_task, max_pain_task, options_task,
-            sector_task,
+            asyncio.wait_for(bulk_task,     timeout=90.0),
+            asyncio.wait_for(insider_task,  timeout=90.0),
+            asyncio.wait_for(earnings_task, timeout=90.0),
+            asyncio.wait_for(fii_task,      timeout=90.0),
+            asyncio.wait_for(max_pain_task, timeout=90.0),
+            asyncio.wait_for(options_task,  timeout=90.0),
+            asyncio.wait_for(sector_task,   timeout=90.0),
             return_exceptions=True
         )
 
