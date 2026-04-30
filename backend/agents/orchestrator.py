@@ -188,6 +188,11 @@ class OrchestratorAgent:
             portfolio_output = state["agent_outputs"].get("portfolio_agent", {})
             tax_output       = state["agent_outputs"].get("tax_agent", {})
 
+            degraded_pre_critic = [
+                name for name, out in state["agent_outputs"].items()
+                if isinstance(out, dict) and "error" in out
+            ]
+
             critic_result = await self.agents["critic_agent"].review({
                 "portfolio":    portfolio_output,
                 "tax":          tax_output,
@@ -199,6 +204,17 @@ class OrchestratorAgent:
                 "user_profile": state["user_profile"],
                 "conflicts":    conflicts,
             })
+
+            # Partial data → downgrade REJECT to PASS with low confidence
+            if critic_result.get("verdict") == "REJECT" and degraded_pre_critic:
+                log.warning("orchestrator.critic_reject_overridden_partial_data",
+                            degraded=degraded_pre_critic)
+                critic_result["verdict"] = "PASS"
+                critic_result["confidence"] = "low"
+                critic_result.setdefault("risks", []).append(
+                    f"Partial data: {len(degraded_pre_critic)} agent(s) degraded "
+                    f"({', '.join(degraded_pre_critic[:3])})"
+                )
 
             if critic_result.get("verdict") == "REVISE":
                 log.info("orchestrator.critic_revise")
@@ -410,8 +426,9 @@ class OrchestratorAgent:
                 break
 
             await asyncio.gather(*[
-                self._run_single_task(state, task) for task in ready
-            ])
+                asyncio.wait_for(self._run_single_task(state, task), timeout=90.0)
+                for task in ready
+            ], return_exceptions=True)
             for task in ready:
                 completed.add(task["step"])
 

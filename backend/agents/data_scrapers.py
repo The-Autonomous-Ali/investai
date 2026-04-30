@@ -1,6 +1,7 @@
 """
 Live Data Scrapers — Fetching Alternative Alpha (FII/DII Flows & Max Pain).
 """
+import json
 import httpx
 import structlog
 from datetime import datetime
@@ -38,7 +39,10 @@ class NSEDataScraper:
         try:
             response = await self.session.get(url)
             if response.status_code == 200:
-                data = response.json()
+                try:
+                    data = json.loads(response.content)
+                except Exception:
+                    return {"error": "NSE returned non-JSON response (likely blocked)"}
                 # Parse the standard NSE JSON structure
                 fii_data = next((item for item in data if item.get('category') == 'FII/FPI *'), None)
                 dii_data = next((item for item in data if item.get('category') == 'DII **'), None)

@@ -77,7 +77,7 @@ SYSTEM_PROMPT = "You are a financial AI assistant. Always respond with valid JSO
 async def _call_groq(prompt: str, model_name: str) -> str:
     from groq import AsyncGroq
     try:
-        client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+        client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"), timeout=60.0)
         response = await client.chat.completions.create(
             model=model_name,
             messages=[
@@ -114,6 +114,7 @@ async def _call_openrouter(prompt: str, model_name: str) -> str:
     client = AsyncOpenAI(
         base_url="https://openrouter.ai/api/v1",
         api_key=os.getenv("OPENROUTER_API_KEY"),
+        timeout=60.0,
     )
     response = await client.chat.completions.create(
         model=model_name,
