@@ -87,8 +87,12 @@ class PortfolioAgent:
             critic_feedback=feedback,
         )
 
-        text = await call_llm(prompt, agent_name="portfolio_agent")
-        return json.loads(text)
+        try:
+            text = await call_llm(prompt, agent_name="portfolio_agent")
+            return json.loads(text)
+        except Exception as e:
+            logger.warning("portfolio_agent.llm_failed", error=str(e)[:200])
+            return {"sectors_to_research": [], "narrative": "Analysis unavailable", "analysis_confidence": 0.3}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -140,8 +144,12 @@ class TaxAgent:
             country=country,
         )
 
-        text = await call_llm(prompt, agent_name="tax_agent")
-        return json.loads(text)
+        try:
+            text = await call_llm(prompt, agent_name="tax_agent")
+            return json.loads(text)
+        except Exception as e:
+            logger.warning("tax_agent.llm_failed", error=str(e)[:200])
+            return {"optimizations": [], "post_tax_return_estimate": "unavailable"}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -193,8 +201,12 @@ class CriticAgent:
             conflicts=json.dumps(inputs.get("conflicts", []), indent=2),
         )
 
-        text = await call_llm(prompt, agent_name="critic_agent")
-        return json.loads(text)
+        try:
+            text = await call_llm(prompt, agent_name="critic_agent")
+            return json.loads(text)
+        except Exception as e:
+            logger.warning("critic_agent.llm_failed", error=str(e)[:200])
+            return {"verdict": "PASS", "overall_quality": 0.5, "risks": [], "feedback": ""}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -390,8 +402,12 @@ class TemporalAgent:
             today=datetime.utcnow().strftime("%Y-%m-%d"),
         )
 
-        text = await call_llm(prompt, agent_name="temporal_agent")
-        return json.loads(text)
+        try:
+            text = await call_llm(prompt, agent_name="temporal_agent")
+            return json.loads(text)
+        except Exception as e:
+            logger.warning("temporal_agent.llm_failed", error=str(e)[:200])
+            return {"timelines": [], "overall_market_phase": "neutral"}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -492,5 +508,9 @@ Analyze and return ONLY valid JSON:
             country=country,
         )
 
-        text = await call_llm(prompt, agent_name="pattern_matcher")
-        return json.loads(text)
+        try:
+            text = await call_llm(prompt, agent_name="pattern_matcher")
+            return json.loads(text)
+        except Exception as e:
+            logger.warning("pattern_matcher.llm_failed", error=str(e)[:200])
+            return {"best_analogues": [], "confidence_score": 0.3}

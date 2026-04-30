@@ -196,8 +196,16 @@ class ResearchAgent:
             country=country,
         )
 
-        text = await call_llm(prompt, agent_name="research_agent")
-        return json.loads(text)
+        try:
+            text = await call_llm(prompt, agent_name="research_agent")
+            return json.loads(text)
+        except Exception as e:
+            logger.warning("research_agent.llm_failed", error=str(e)[:200])
+            return {
+                "error": "llm_parse_failed",
+                "sectors_analysis": {"strong_buy": [], "buy": [], "neutral": [], "avoid": [], "strong_avoid": []},
+                "confidence_score": 0.3,
+            }
 
     @staticmethod
     def assemble_full_chain(signal_data: dict, research_result: dict, temporal_data: dict) -> dict:

@@ -489,12 +489,22 @@ class OrchestratorAgent:
 
             elif agent_name == "company_intelligence":
                 research = state["agent_outputs"].get("research_agent", {})
+                sectors_to_buy = (
+                    research.get("sectors_analysis", {}).get("strong_buy", []) +
+                    research.get("sectors_analysis", {}).get("buy", [])
+                )
+                # Fallback: derive sectors from signal_watcher if research returned nothing
+                if not sectors_to_buy:
+                    seen = set()
+                    for sig in state["agent_outputs"].get("signal_watcher", {}).get("signals", []):
+                        for sect in sig.get("sectors_affected", []):
+                            if sect not in seen:
+                                sectors_to_buy.append({"sector": sect, "reason": "signal-driven"})
+                                seen.add(sect)
+                    sectors_to_buy = sectors_to_buy[:4]
                 result   = await agent.analyze({
                     **agent_input,
-                    "sectors_to_buy": (
-                        research.get("sectors_analysis", {}).get("strong_buy", []) +
-                        research.get("sectors_analysis", {}).get("buy", [])
-                    ),
+                    "sectors_to_buy": sectors_to_buy,
                     "sectors_to_avoid": (
                         research.get("sectors_analysis", {}).get("avoid", []) +
                         research.get("sectors_analysis", {}).get("strong_avoid", [])
