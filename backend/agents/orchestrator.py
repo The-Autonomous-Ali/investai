@@ -22,65 +22,28 @@ from .market_intelligence import MarketIntelligence
 from .adversarial_agent import AdversarialAgent
 from .risk_engine import RiskEngine
 from .data_scrapers import NSEDataScraper
-from utils.llm_client import call_llm, call_llm_structured
-from pydantic import BaseModel, ConfigDict
+from utils.llm_client import call_llm
 
 logger = structlog.get_logger()
 
 
-class _TaskPlanSchema(BaseModel):
-    """Loose schema — just verifies the LLM returned a task_plan list."""
-    model_config = ConfigDict(extra="allow")
-    task_plan: list[dict]
-
-ORCHESTRATOR_PROMPT = """You are the Orchestrator of InvestAI, a financial intelligence system for global markets.
-
-A user from {country} has submitted a query. Your job is to:
-1. Understand the intent
-2. Build an ordered task plan
-3. Identify which agents are needed
-
-Available agents:
-- signal_watcher: Gets current top market signals (global + India)
-- global_macro_agent: Scores global signals for India impact — run BEFORE research
-- research_agent: Deep-dives signals for {country}-specific impacts
-- pattern_matcher: Finds historical analogues for current events
-- portfolio_agent: Builds specific allocation plan
-- tax_agent: Optimizes allocation for {country} tax efficiency
-- memory_agent: Retrieves/stores user history
-- temporal_agent: Assesses event lifecycle and time horizon
-- company_intelligence: Finds best companies in target sectors
-- adversarial_agent: Subjects company picks to a Bull vs. Bear debate to stress-test the thesis
-- sentiment_aggregator: Scores market sentiment for identified companies
-
-User query: {query}
-User profile summary: {user_profile}
-Investment amount: {amount}
-Time horizon: {horizon}
-Country: {country}
-
-Return a JSON task plan. Always include global_macro_agent after signal_watcher.
-Always include sentiment_aggregator after company_intelligence.
-
-{{
-  "intent": "what the user is asking for",
-  "task_plan": [
-    {{"step": 1, "agent": "signal_watcher",      "input": "get current global + India signals", "depends_on": []}},
-    {{"step": 2, "agent": "global_macro_agent",  "input": "score global signal India impact",   "depends_on": [1]}},
-    {{"step": 3, "agent": "research_agent",      "input": "deep analysis with macro context",   "depends_on": [2]}},
-    {{"step": 4, "agent": "pattern_matcher",     "input": "historical analogues",               "depends_on": [2]}},
-    {{"step": 5, "agent": "temporal_agent",      "input": "event lifecycles",                   "depends_on": [2]}},
-    {{"step": 6, "agent": "portfolio_agent",     "input": "build allocation",                   "depends_on": [3, 4]}},
-    {{"step": 7, "agent": "tax_agent",           "input": "optimize for tax",                   "depends_on": [6]}},
-    {{"step": 8, "agent": "company_intelligence","input": "find best companies",                "depends_on": [3]}},
-    {{"step": 9, "agent": "adversarial_agent",   "input": "stress test company picks",          "depends_on": [8]}},
-    {{"step": 10,"agent": "sentiment_aggregator","input": "score company sentiments",           "depends_on": [9]}},
-    {{"step": 11,"agent": "investment_manager",  "input": "build full playbook",                "depends_on": [6, 7, 9, 10]}}
-  ],
-  "requires_real_time_signals": true,
-  "urgency": "high/medium/low"
-}}
-"""
+FIXED_TASK_PLAN = {
+    "intent": "comprehensive market analysis and sector signals",
+    "task_plan": [
+        {"step": 1,  "agent": "signal_watcher",       "input": "get current global + India signals",  "depends_on": []},
+        {"step": 2,  "agent": "global_macro_agent",   "input": "score global signal India impact",    "depends_on": [1]},
+        {"step": 3,  "agent": "research_agent",       "input": "deep analysis with macro context",    "depends_on": [2]},
+        {"step": 4,  "agent": "pattern_matcher",      "input": "historical analogues",                "depends_on": [2]},
+        {"step": 5,  "agent": "temporal_agent",       "input": "event lifecycles",                    "depends_on": [2]},
+        {"step": 6,  "agent": "portfolio_agent",      "input": "build sector signals",                "depends_on": [3, 4]},
+        {"step": 7,  "agent": "tax_agent",            "input": "optimize for tax",                    "depends_on": [6]},
+        {"step": 8,  "agent": "company_intelligence", "input": "find best companies",                 "depends_on": [3]},
+        {"step": 9,  "agent": "adversarial_agent",    "input": "stress test company picks",           "depends_on": [8]},
+        {"step": 10, "agent": "sentiment_aggregator", "input": "score company sentiments",            "depends_on": [9]},
+    ],
+    "requires_real_time_signals": True,
+    "urgency": "high",
+}
 
 
 class OrchestratorAgent:
@@ -395,25 +358,7 @@ class OrchestratorAgent:
             return {"success": False, "error": str(e)}
 
     async def _build_task_plan(self, state: dict) -> dict:
-        profile_summary = self._summarize_profile(state["user_profile"])
-        prompt = ORCHESTRATOR_PROMPT.format(
-            query=state["query"],
-            user_profile=profile_summary,
-            amount=state["amount"],
-            horizon=state["horizon"],
-            country=state["country"],
-        )
-        try:
-            plan = await call_llm_structured(
-                prompt,
-                _TaskPlanSchema,
-                agent_name="orchestrator",
-                max_retries=3,
-            )
-            return plan.model_dump()
-        except Exception as e:
-            logger.error("orchestrator.task_plan_failed", error=str(e)[:200])
-            return {"task_plan": []}
+        return FIXED_TASK_PLAN
 
     async def _execute_task_plan(self, state: dict, task_plan: dict):
         tasks     = task_plan["task_plan"]
